@@ -118,6 +118,7 @@ int main(void) {
                 if (keysym == XK_d) input_set_key('d', true);
                 if (keysym == XK_Shift_L || keysym == XK_Shift_R) input_set_shift(true);
                 if (keysym == XK_F3) { g_input.key_f3 = true; ui_toggle(&ui); }
+                if (keysym == XK_Escape) running = false;
             } else if (event.type == KeyRelease) {
                 KeySym keysym = XLookupKeysym(&event.xkey, 0);
                 if (keysym == XK_w) input_set_key('w', false);
@@ -133,11 +134,13 @@ int main(void) {
                 input_set_mouse_button(event.xbutton.button, false);
                 ui_handle_mouse(&ui, event.xbutton.x, event.xbutton.y, NK_BUTTON_LEFT, false);
             } else if (event.type == MotionNotify) {
-                int dx = event.xmotion.x - width / 2;
-                int dy = event.xmotion.y - height / 2;
-                if (dx != 0 || dy != 0) {
-                    input_set_mouse_delta((float)dx, (float)dy);
-                    XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
+                if (!ui_is_visible(&ui)) {
+                    int dx = event.xmotion.x - width / 2;
+                    int dy = event.xmotion.y - height / 2;
+                    if (dx != 0 || dy != 0) {
+                        input_set_mouse_delta((float)dx, (float)dy);
+                        XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
+                    }
                 }
                 if (ui_is_visible(&ui)) {
                     ui_handle_mouse(&ui, event.xmotion.x, event.xmotion.y, 0, false);
