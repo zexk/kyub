@@ -30,17 +30,3 @@ void chunk_init(Chunk *chunk, int x, int z) {
         }
     }
 }
-
-void world_init(World *world, int grid_size) {
-    world->grid_size = grid_size;
-    world->chunks = malloc(sizeof(Chunk) * grid_size * grid_size);
-    for (int x = 0; x < grid_size; x++) {
-        for (int z = 0; z < grid_size; z++) {
-            chunk_init(&world->chunks[x * grid_size + z], x - grid_size/2, z - grid_size/2);
-        }
-    }
-}
-
-void world_free(World *world) {
-    free(world->chunks);
-}

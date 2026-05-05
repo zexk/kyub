@@ -19,13 +19,6 @@ typedef struct {
     vec3 min, max;
 } Chunk;
 
-typedef struct {
-    Chunk *chunks;
-    int grid_size;
-} World;
-
 void chunk_init(Chunk *chunk, int x, int z);
-void world_init(World *world, int grid_size);
-void world_free(World *world);
 
 #endif // VOXEL_H
