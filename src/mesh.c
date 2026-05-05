@@ -102,7 +102,7 @@ void mesh_upload(Mesh *mesh) {
     glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(10 * sizeof(float)));
     glEnableVertexAttribArray(4);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
+    glBindVertexArray(mesh->vao);  // Keep VAO bound instead of 0
 }
 void mesh_free(Mesh *mesh) {
     free(mesh->vertices);

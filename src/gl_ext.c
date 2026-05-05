@@ -29,6 +29,18 @@ PFNGLDELETEBUFFERSPROC glDeleteBuffers = NULL;
 PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = NULL;
 PFNGLBINDVERTEXARRAYPROC glBindVertexArray = NULL;
 PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays = NULL;
+PFNGLMAPBUFFERPROC glMapBuffer = NULL;
+PFNGLUNMAPBUFFERPROC glUnmapBuffer = NULL;
+PFNGLISVERTEXARRAYPROC glIsVertexArray = NULL;
+PFNGLISBUFFERPROC glIsBuffer = NULL;
+PFNGLCREATEVERTEXARRAYSPROC glCreateVertexArrays = NULL;
+PFNGLCREATEBUFFERSPROC glCreateBuffers = NULL;
+PFNGLVERTEXARRAYVERTEXBUFFERPROC glVertexArrayVertexBuffer = NULL;
+PFNGLVERTEXARRAYATTRIBFORMATPROC glVertexArrayAttribFormat = NULL;
+PFNGLVERTEXARRAYATTRIBBINDINGPROC glVertexArrayAttribBinding = NULL;
+PFNGLENABLEVERTEXARRAYATTRIBPROC glEnableVertexArrayAttrib = NULL;
+PFNGLNAMEDBUFFERDATAPROC glNamedBufferData = NULL;
+PFNGLVERTEXARRAYELEMENTBUFFERPROC glVertexArrayElementBuffer = NULL;
 PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer = NULL;
 PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = NULL;
 
@@ -69,8 +81,24 @@ bool gl_ext_init(void) {
     glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)get_proc("glGenVertexArrays");
     glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)get_proc("glBindVertexArray");
     glDeleteVertexArrays = (PFNGLDELETEVERTEXARRAYSPROC)get_proc("glDeleteVertexArrays");
+    glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)get_proc("glDeleteBuffers");
+    glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)get_proc("glGenVertexArrays");
+    glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)get_proc("glBindVertexArray");
+    glDeleteVertexArrays = (PFNGLDELETEVERTEXARRAYSPROC)get_proc("glDeleteVertexArrays");
+    glMapBuffer = (PFNGLMAPBUFFERPROC)get_proc("glMapBuffer");
+    glUnmapBuffer = (PFNGLUNMAPBUFFERPROC)get_proc("glUnmapBuffer");
     glVertexAttribPointer = (PFNGLVERTEXATTRIBPOINTERPROC)get_proc("glVertexAttribPointer");
     glEnableVertexAttribArray = (PFNGLENABLEVERTEXATTRIBARRAYPROC)get_proc("glEnableVertexAttribArray");
+    glIsVertexArray = (PFNGLISVERTEXARRAYPROC)get_proc("glIsVertexArray");
+    glIsBuffer = (PFNGLISBUFFERPROC)get_proc("glIsBuffer");
+    glCreateVertexArrays = (PFNGLCREATEVERTEXARRAYSPROC)get_proc("glCreateVertexArrays");
+    glCreateBuffers = (PFNGLCREATEBUFFERSPROC)get_proc("glCreateBuffers");
+    glVertexArrayVertexBuffer = (PFNGLVERTEXARRAYVERTEXBUFFERPROC)get_proc("glVertexArrayVertexBuffer");
+    glVertexArrayAttribFormat = (PFNGLVERTEXARRAYATTRIBFORMATPROC)get_proc("glVertexArrayAttribFormat");
+    glVertexArrayAttribBinding = (PFNGLVERTEXARRAYATTRIBBINDINGPROC)get_proc("glVertexArrayAttribBinding");
+    glEnableVertexArrayAttrib = (PFNGLENABLEVERTEXARRAYATTRIBPROC)get_proc("glEnableVertexArrayAttrib");
+    glNamedBufferData = (PFNGLNAMEDBUFFERDATAPROC)get_proc("glNamedBufferData");
+    glVertexArrayElementBuffer = (PFNGLVERTEXARRAYELEMENTBUFFERPROC)get_proc("glVertexArrayElementBuffer");
 
     if (!glCreateShader || !glCreateProgram || !glUseProgram) {
         return false;

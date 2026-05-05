@@ -10,6 +10,7 @@ typedef struct {
     bool mouse_captured;
     bool mouse_left;
     bool mouse_right;
+    bool key_f3;
 } Input;
 
 extern Input g_input;
