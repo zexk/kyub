@@ -1,0 +1,31 @@
+#ifndef VOXEL_H
+#define VOXEL_H
+
+#include <stdint.h>
+#include "math3d.h"
+
+#define CHUNK_SIZE 16
+
+typedef enum {
+    BLOCK_AIR = 0,
+    BLOCK_DIRT = 1,
+    BLOCK_GRASS = 2,
+    BLOCK_STONE = 3,
+} BlockType;
+
+typedef struct {
+    uint8_t blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
+    int x, z;
+    vec3 min, max;
+} Chunk;
+
+typedef struct {
+    Chunk *chunks;
+    int grid_size;
+} World;
+
+void chunk_init(Chunk *chunk, int x, int z);
+void world_init(World *world, int grid_size);
+void world_free(World *world);
+
+#endif // VOXEL_H
