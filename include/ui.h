@@ -34,6 +34,7 @@ typedef struct {
     vec3 player_dir;
     float player_yaw;
     float player_pitch;
+    int render_distance;
 } UI;
 
 void ui_init(UI *ui, int width, int height);

@@ -238,6 +238,9 @@ int main(void) {
 
         ui_render(&ui, width, height);
 
+        // Apply render distance from UI to world
+        world.render_distance = ui.render_distance;
+
         glEnable(GL_DEPTH_TEST);
 
         glXSwapBuffers(display, window);

@@ -125,6 +125,7 @@ void ui_set_stats(UI *ui, float fps, int chunk_count, vec3 pos, vec3 dir, float 
     ui->player_dir = dir;
     ui->player_yaw = yaw;
     ui->player_pitch = pitch;
+    ui->render_distance = 2;
 }
 
 void ui_render(UI *ui, int width, int height) {
@@ -164,6 +165,10 @@ void ui_render(UI *ui, int width, int height) {
 
         snprintf(buf, sizeof(buf), "Pitch: %.1f", ui->player_pitch);
         nk_label(&ui->ctx, buf, NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(&ui->ctx, 20, 2);
+        nk_label(&ui->ctx, "Render Dist:", NK_TEXT_LEFT);
+        nk_slider_int(&ui->ctx, 1, &ui->render_distance, 8, 1);
     }
     nk_end(&ui->ctx);
 

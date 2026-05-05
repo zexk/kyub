@@ -2,9 +2,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define MAX_RENDER_DISTANCE 8
+
 void world_init(World *world, int render_distance) {
+    if (render_distance < 1) render_distance = 1;
+    if (render_distance > MAX_RENDER_DISTANCE) render_distance = MAX_RENDER_DISTANCE;
     world->render_distance = render_distance;
-    world->capacity = (2 * render_distance + 1) * (2 * render_distance + 1);
+    world->capacity = (2 * MAX_RENDER_DISTANCE + 1) * (2 * MAX_RENDER_DISTANCE + 1);
     world->chunks = calloc(world->capacity, sizeof(LoadedChunk));
     world->count = 0;
 }
