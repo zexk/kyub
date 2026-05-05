@@ -129,11 +129,11 @@ int main(void) {
                 input_set_mouse_button(event.xbutton.button, false);
                 ui_handle_mouse(&ui, event.xbutton.x, event.xbutton.y, NK_BUTTON_LEFT, false);
             } else if (event.type == MotionNotify) {
-                if (!ui_is_visible(&ui)) {
-                    int dx = event.xmotion.x - width / 2;
-                    int dy = event.xmotion.y - height / 2;
-                    if (dx != 0 || dy != 0) {
-                        input_set_mouse_delta((float)dx, (float)dy);
+                int dx = event.xmotion.x - width / 2;
+                int dy = event.xmotion.y - height / 2;
+                if (dx != 0 || dy != 0) {
+                    input_set_mouse_delta((float)dx, (float)dy);
+                    if (!ui_is_visible(&ui)) {
                         XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
                     }
                 }

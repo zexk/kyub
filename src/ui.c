@@ -68,7 +68,7 @@ void ui_init(UI *ui, int width, int height) {
 
     nk_font_atlas_init_default(&ui->atlas);
     nk_font_atlas_begin(&ui->atlas);
-    struct nk_font *font = nk_font_atlas_add_default(&ui->atlas, 14.0f, NULL);
+    struct nk_font *font = nk_font_atlas_add_default(&ui->atlas, 18.0f, NULL);
     int w, h;
     const void *image = nk_font_atlas_bake(&ui->atlas, &w, &h, NK_FONT_ATLAS_RGBA32);
     nk_font_atlas_end(&ui->atlas, (nk_handle){0}, NULL);
