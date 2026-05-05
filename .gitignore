@@ -1,0 +1,18 @@
+# Build outputs
+build/
+result
+
+# Direnv
+.direnv/
+
+# Nix
+result
+*.drv
+
+# Editor
+*.swp
+*.swo
+*~
+
+# State
+state.png
