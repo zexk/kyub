@@ -52,13 +52,6 @@ int main(void) {
     if (!gl_ext_init()) return 1;
 
     glEnable(GL_DEPTH_TEST);
-    int gl_ver_major, gl_ver_minor;
-    glGetIntegerv(GL_MAJOR_VERSION, &gl_ver_major);
-    glGetIntegerv(GL_MINOR_VERSION, &gl_ver_minor);
-    printf("GL version: %d.%d\n", gl_ver_major, gl_ver_minor);
-    const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
-    printf("GL renderer: %s\n", gl_renderer ? gl_renderer : "NULL");
-    fflush(stdout);
     glEnable(GL_CULL_FACE);
     glEnable(GL_MULTISAMPLE);
 
@@ -95,6 +88,8 @@ int main(void) {
     Camera camera;
     camera_init(&camera);
     input_init();
+
+    XGrabPointer(display, window, True, PointerMotionMask, GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
 
     UI ui;
     ui_init(&ui, width, height);
