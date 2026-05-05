@@ -8,6 +8,7 @@
 #include "camera.h"
 #include "input.h"
 #include "world.h"
+#include "texture.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
@@ -34,7 +35,6 @@ int main(void) {
     Window window = XCreateWindow(display, RootWindow(display, screen_id), 0, 0, width, height, 0, visual_info->depth, InputOutput, visual_info->visual, CWColormap | CWEventMask, &window_attributes);
     XMapWindow(display, window);
     
-    // Hide cursor
     Pixmap blank = XCreateBitmapFromData(display, window, (char[]){0}, 1, 1);
     XColor dummy;
     Cursor cursor = XCreatePixmapCursor(display, blank, blank, &dummy, &dummy, 0, 0);
@@ -54,8 +54,10 @@ int main(void) {
     unsigned int shader_program = shader_create_program("shaders/basic.vert", "shaders/basic.frag");
     if (!shader_program) return 1;
 
+    GLuint atlas = texture_load("assets/atlas.png");
+
     World world;
-    world_init(&world, 2); // 2 chunk render distance
+    world_init(&world, 2);
 
     Camera camera;
     camera_init(&camera);
@@ -111,6 +113,9 @@ int main(void) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         glUseProgram(shader_program);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, atlas);
+        glUniform1i(glGetUniformLocation(shader_program, "uTexture"), 0);
 
         mat4 model = mat4_identity();
         mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)width / (float)height, 0.1f, 100.0f);

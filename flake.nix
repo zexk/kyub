@@ -20,6 +20,7 @@
         buildInputs = with pkgs; [
           libX11
           libGL
+					stb
         ];
       in
       {
@@ -40,7 +41,7 @@
 
         devShells.default = pkgs.mkShell {
           inherit nativeBuildInputs buildInputs;
-          packages = with pkgs; [ gdb ];
+          packages = with pkgs; [ gdb stb clang-tools ];
           
           shellHook = ''
             echo "Voxel Engine development environment"

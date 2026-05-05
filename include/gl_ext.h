@@ -38,7 +38,8 @@ typedef void (APIENTRYP PFNGLDELETEBUFFERSPROC) (GLsizei n, const GLuint *buffer
 typedef void (APIENTRYP PFNGLDELETEVERTEXARRAYSPROC) (GLsizei n, const GLuint *arrays);
 
 typedef void (APIENTRYP PFNGLUNIFORMMATRIX4FVPROC) (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
-typedef GLint (APIENTRYP PFNGLGETUNIFORMLOCATIONPROC) (GLuint program, const GLchar *name);
+typedef void (APIENTRYP PFNGLUNIFORM1IPROC) (GLint location, GLint v0);
+extern PFNGLUNIFORM1IPROC glUniform1i;
 
 // Function pointers
 extern PFNGLCREATESHADERPROC glCreateShader;
@@ -55,6 +56,9 @@ extern PFNGLUSEPROGRAMPROC glUseProgram;
 extern PFNGLDELETESHADERPROC glDeleteShader;
 extern PFNGLDELETEPROGRAMPROC glDeleteProgram;
 extern PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv;
+typedef void (APIENTRYP PFNGLGENERATEMIPMAPPROC) (GLenum target);
+extern PFNGLGENERATEMIPMAPPROC glGenerateMipmap;
+typedef GLint (APIENTRYP PFNGLGETUNIFORMLOCATIONPROC) (GLuint program, const GLchar *name);
 extern PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation;
 
 extern PFNGLGENBUFFERSPROC glGenBuffers;

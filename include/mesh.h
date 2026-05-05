@@ -9,6 +9,7 @@ typedef struct {
     float r, g, b;
     float nx, ny, nz;
     float ao;
+    float u, v;
 } Vertex;
 
 typedef struct {

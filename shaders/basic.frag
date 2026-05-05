@@ -4,6 +4,9 @@ out vec4 FragColor;
 in vec3 ourColor;
 in vec3 Normal;
 in float AO;
+in vec2 TexCoord;
+
+uniform sampler2D uTexture;
 
 void main() {
     // Simple directional lighting
@@ -13,8 +16,11 @@ void main() {
     float ambient = 0.3;
     float light = min(ambient + diff, 1.0);
     
-    // Combine lighting and AO
-    vec3 result = ourColor * light * AO;
+    // Sample texture and combine with lighting and AO
+    vec4 texColor = texture(uTexture, TexCoord);
+    
+    // Apply AO and lighting to the texture
+    vec3 result = texColor.rgb * light * AO;
     
     FragColor = vec4(result, 1.0);
 }
