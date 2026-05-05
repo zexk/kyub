@@ -75,3 +75,39 @@ void world_free(World *world) {
     }
     free(world->chunks);
 }
+
+static LoadedChunk* find_chunk(World *world, int cx, int cz) {
+    for (int i = 0; i < world->capacity; i++) {
+        if (world->chunks[i].active && world->chunks[i].chunk->x == cx && world->chunks[i].chunk->z == cz)
+            return &world->chunks[i];
+    }
+    return NULL;
+}
+
+BlockType world_get_block(World *world, int x, int y, int z) {
+    if (y < 0 || y >= CHUNK_SIZE) return BLOCK_AIR;
+    int cx = x / CHUNK_SIZE;
+    int cz = z / CHUNK_SIZE;
+    if (x < 0) cx--;
+    if (z < 0) cz--;
+    LoadedChunk *lc = find_chunk(world, cx, cz);
+    if (!lc) return BLOCK_AIR;
+    int lx = x - cx * CHUNK_SIZE;
+    int lz = z - cz * CHUNK_SIZE;
+    return lc->chunk->blocks[lx][y][lz];
+}
+
+void world_set_block(World *world, int x, int y, int z, BlockType type) {
+    if (y < 0 || y >= CHUNK_SIZE) return;
+    int cx = x / CHUNK_SIZE;
+    int cz = z / CHUNK_SIZE;
+    if (x < 0) cx--;
+    if (z < 0) cz--;
+    LoadedChunk *lc = find_chunk(world, cx, cz);
+    if (!lc) return;
+    int lx = x - cx * CHUNK_SIZE;
+    int lz = z - cz * CHUNK_SIZE;
+    lc->chunk->blocks[lx][y][lz] = type;
+    mesh_generate_greedy(lc->mesh, lc->chunk);
+    mesh_upload(lc->mesh);
+}

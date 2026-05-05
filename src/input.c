@@ -1,4 +1,5 @@
 #include "input.h"
+#include <X11/Xlib.h>
 #include <string.h>
 
 Input g_input;
@@ -21,4 +22,9 @@ void input_set_shift(bool pressed) {
 void input_set_mouse_delta(float dx, float dy) {
     g_input.mouse_dx = dx;
     g_input.mouse_dy = dy;
+}
+
+void input_set_mouse_button(int button, bool pressed) {
+    if (button == Button1) g_input.mouse_left = pressed;
+    if (button == Button3) g_input.mouse_right = pressed;
 }

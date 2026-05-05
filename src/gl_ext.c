@@ -16,6 +16,9 @@ PFNGLDELETESHADERPROC glDeleteShader = NULL;
 PFNGLDELETEPROGRAMPROC glDeleteProgram = NULL;
 PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = NULL;
 PFNGLUNIFORM1IPROC glUniform1i = NULL;
+PFNGLUNIFORM1FPROC glUniform1f = NULL;
+PFNGLUNIFORM2FPROC glUniform2f = NULL;
+PFNGLUNIFORM3FPROC glUniform3f = NULL;
 PFNGLGENERATEMIPMAPPROC glGenerateMipmap = NULL;
 PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation = NULL;
 
@@ -53,6 +56,9 @@ bool gl_ext_init(void) {
     glDeleteProgram = (PFNGLDELETEPROGRAMPROC)get_proc("glDeleteProgram");
     glUniformMatrix4fv = (PFNGLUNIFORMMATRIX4FVPROC)get_proc("glUniformMatrix4fv");
     glUniform1i = (PFNGLUNIFORM1IPROC)get_proc("glUniform1i");
+    glUniform1f = (PFNGLUNIFORM1FPROC)get_proc("glUniform1f");
+    glUniform2f = (PFNGLUNIFORM2FPROC)get_proc("glUniform2f");
+    glUniform3f = (PFNGLUNIFORM3FPROC)get_proc("glUniform3f");
     glGenerateMipmap = (PFNGLGENERATEMIPMAPPROC)get_proc("glGenerateMipmap");
     glGetUniformLocation = (PFNGLGETUNIFORMLOCATIONPROC)get_proc("glGetUniformLocation");
 

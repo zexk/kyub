@@ -13,6 +13,7 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <time.h>
+#include <math.h>
 
 static double get_time_s(void) {
     struct timespec ts;
@@ -30,7 +31,7 @@ int main(void) {
     Colormap colormap = XCreateColormap(display, RootWindow(display, screen_id), visual_info->visual, AllocNone);
     XSetWindowAttributes window_attributes;
     window_attributes.colormap = colormap;
-    window_attributes.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | PointerMotionMask | StructureNotifyMask;
+    window_attributes.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | StructureNotifyMask;
     int width = 800, height = 600;
     Window window = XCreateWindow(display, RootWindow(display, screen_id), 0, 0, width, height, 0, visual_info->depth, InputOutput, visual_info->visual, CWColormap | CWEventMask, &window_attributes);
     XMapWindow(display, window);
@@ -53,6 +54,23 @@ int main(void) {
 
     unsigned int shader_program = shader_create_program("shaders/basic.vert", "shaders/basic.frag");
     if (!shader_program) return 1;
+
+    unsigned int hud_program = shader_create_program("shaders/hud.vert", "shaders/hud.frag");
+    if (!hud_program) return 1;
+
+    GLuint hud_vao, hud_vbo;
+    glGenVertexArrays(1, &hud_vao);
+    glGenBuffers(1, &hud_vbo);
+    float crosshair[] = {
+        -0.015f, 0.0f,  0.015f, 0.0f,
+        0.0f, -0.02f,  0.0f, 0.02f
+    };
+    glBindVertexArray(hud_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(crosshair), crosshair, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
 
     GLuint atlas = texture_load("assets/atlas.png");
 
@@ -90,6 +108,10 @@ int main(void) {
                 if (keysym == XK_a) input_set_key('a', false);
                 if (keysym == XK_d) input_set_key('d', false);
                 if (keysym == XK_Shift_L || keysym == XK_Shift_R) input_set_shift(false);
+            } else if (event.type == ButtonPress) {
+                input_set_mouse_button(event.xbutton.button, true);
+            } else if (event.type == ButtonRelease) {
+                input_set_mouse_button(event.xbutton.button, false);
             } else if (event.type == MotionNotify) {
                 int dx = event.xmotion.x - width / 2;
                 int dy = event.xmotion.y - height / 2;
@@ -108,6 +130,45 @@ int main(void) {
 
         camera_update(&camera, dt);
         world_update(&world, camera.pos);
+
+        static bool prev_left = false, prev_right = false;
+        if (g_input.mouse_left && !prev_left) {
+            vec3 dir = camera.front;
+            vec3 pos = camera.pos;
+            int hit_x = -1, hit_y = -1, hit_z = -1;
+            for (float t = 0; t < 8.0f; t += 0.05f) {
+                vec3 p = vec3_add(pos, vec3_mul(dir, t));
+                int bx = (int)floorf(p.x);
+                int by = (int)floorf(p.y);
+                int bz = (int)floorf(p.z);
+                BlockType b = world_get_block(&world, bx, by, bz);
+                if (b != BLOCK_AIR) {
+                    hit_x = bx; hit_y = by; hit_z = bz;
+                    break;
+                }
+            }
+            if (hit_x >= 0) world_set_block(&world, hit_x, hit_y, hit_z, BLOCK_AIR);
+        }
+        if (g_input.mouse_right && !prev_right) {
+            vec3 dir = camera.front;
+            vec3 pos = camera.pos;
+            int prev_x = -1, prev_y = -1, prev_z = -1;
+            for (float t = 0; t < 8.0f; t += 0.05f) {
+                vec3 p = vec3_add(pos, vec3_mul(dir, t));
+                int bx = (int)floorf(p.x);
+                int by = (int)floorf(p.y);
+                int bz = (int)floorf(p.z);
+                BlockType b = world_get_block(&world, bx, by, bz);
+                if (b != BLOCK_AIR) {
+                    if (prev_x >= 0 && world_get_block(&world, prev_x, prev_y, prev_z) == BLOCK_AIR)
+                        world_set_block(&world, prev_x, prev_y, prev_z, BLOCK_STONE);
+                    break;
+                }
+                prev_x = bx; prev_y = by; prev_z = bz;
+            }
+        }
+        prev_left = g_input.mouse_left;
+        prev_right = g_input.mouse_right;
 
         glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -135,6 +196,13 @@ int main(void) {
                 glDrawArrays(GL_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
             }
         }
+
+        glDisable(GL_DEPTH_TEST);
+        glUseProgram(hud_program);
+        glUniform3f(glGetUniformLocation(hud_program, "uColor"), 0.7f, 0.7f, 0.7f);
+        glBindVertexArray(hud_vao);
+        glDrawArrays(GL_LINES, 0, 4);
+        glEnable(GL_DEPTH_TEST);
 
         glXSwapBuffers(display, window);
     }
