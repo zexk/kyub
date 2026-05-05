@@ -131,9 +131,9 @@ int main(void) {
             } else if (event.type == MotionNotify) {
                 int dx = event.xmotion.x - width / 2;
                 int dy = event.xmotion.y - height / 2;
-                if (!ui_is_visible(&ui)) {
-                    if (dx != 0 || dy != 0) {
-                        input_set_mouse_delta((float)dx, (float)dy);
+                if (dx != 0 || dy != 0) {
+                    input_set_mouse_delta((float)dx, (float)dy);
+                    if (!ui_is_visible(&ui)) {
                         XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
                     }
                 }
