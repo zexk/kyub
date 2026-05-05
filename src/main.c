@@ -133,9 +133,7 @@ int main(void) {
                 int dy = event.xmotion.y - height / 2;
                 if (dx != 0 || dy != 0) {
                     input_set_mouse_delta((float)dx, (float)dy);
-                    if (!ui_is_visible(&ui)) {
-                        XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
-                    }
+                    XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
                 }
                 if (ui_is_visible(&ui)) {
                     ui_handle_mouse(&ui, event.xmotion.x, event.xmotion.y, 0, false);
