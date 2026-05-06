@@ -1,6 +1,8 @@
-#version 330 core
-layout (location = 0) in vec2 aPos;
+#version 450 core
+
+layout(location = 0) in vec2 aPos;
 
 void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
+    /* Vulkan native: NDC Y is down, flip input Y which is in OpenGL-style coords */
+    gl_Position = vec4(aPos.x, -aPos.y, 0.0, 1.0);
 }

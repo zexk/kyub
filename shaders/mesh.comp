@@ -1,8 +1,8 @@
-#version 460 core
+#version 450 core
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
-layout(r8ui, binding = 0) uniform uimage3D uVoxels;
+layout(set = 0, binding = 0, r8ui) uniform readonly uimage3D uVoxels;
 
 struct Vertex {
     vec4 pos;
@@ -11,13 +11,17 @@ struct Vertex {
     vec4 uv_pad;
 };
 
-layout(std430, binding = 1) buffer bVertices {
+layout(set = 0, binding = 1, std430) buffer bVertices {
     Vertex vertices[];
 };
 
-layout(binding = 0) uniform atomic_uint uVertexCount;
+layout(set = 0, binding = 2, std430) buffer bCounter {
+    uint uVertexCount;
+};
 
-uniform ivec2 uChunkPos;
+layout(push_constant) uniform PushConstants {
+    ivec2 uChunkPos;
+} pc;
 
 const int CHUNK_SIZE = 16;
 
@@ -36,7 +40,7 @@ UVRect get_uv_rect(uint type) {
 }
 
 void add_face_to_buffer(vec3 p0, vec3 p1, vec3 p2, vec3 p3, vec3 n, float ao, UVRect uv) {
-    uint base_idx = atomicCounterAdd(uVertexCount, 6);
+    uint base_idx = atomicAdd(uVertexCount, 6);
     
     // Tri 1
     vertices[base_idx + 0].pos = vec4(p0, 1.0);
@@ -78,9 +82,9 @@ void main() {
     uint type = imageLoad(uVoxels, ivec3(pos.z, pos.y, pos.x)).r;
     if (type == 0) return;
 
-    float ox = float(pos.x + uChunkPos.x * CHUNK_SIZE);
+    float ox = float(pos.x + pc.uChunkPos.x * CHUNK_SIZE);
     float oy = float(pos.y);
-    float oz = float(pos.z + uChunkPos.y * CHUNK_SIZE);
+    float oz = float(pos.z + pc.uChunkPos.y * CHUNK_SIZE);
     UVRect uv = get_uv_rect(type);
 
     // Front (+Z)

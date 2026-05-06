@@ -5,19 +5,16 @@
 #include <math.h>
 #include <stdlib.h>
 
-void voxel_upload_texture(GLuint *tex, const Chunk *chunk) {
-    glGenTextures(1, tex);
-    glBindTexture(GL_TEXTURE_3D, *tex);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexImage3D_ext(GL_TEXTURE_3D, 0, GL_R8UI,
-                 CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE,
-                 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE,
-                 chunk->blocks);
-    glBindTexture(GL_TEXTURE_3D, 0);
+void voxel_upload_texture(R_Texture *tex, const Chunk *chunk) {
+    *tex = renderer_create_texture();
+    renderer_bind_texture(R_TEX_3D, *tex);
+    renderer_tex_param(R_TEX_3D, R_TEX_MIN_FILTER, R_TEX_NEAREST);
+    renderer_tex_param(R_TEX_3D, R_TEX_MAG_FILTER, R_TEX_NEAREST);
+    renderer_tex_param(R_TEX_3D, R_TEX_WRAP_S, R_TEX_CLAMP_TO_EDGE);
+    renderer_tex_param(R_TEX_3D, R_TEX_WRAP_T, R_TEX_CLAMP_TO_EDGE);
+    renderer_tex_param(R_TEX_3D, R_TEX_WRAP_R, R_TEX_CLAMP_TO_EDGE);
+    renderer_tex_image_3d(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, chunk->blocks);
+    renderer_bind_texture(R_TEX_3D, R_INVALID_HANDLE);
 }
 
 

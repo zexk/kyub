@@ -23,11 +23,11 @@ typedef struct {
     struct nk_buffer cmds;
     struct nk_buffer vertices;
     struct nk_buffer elements;
-    unsigned int shader;
-    unsigned int vao;
-    unsigned int vbo;
-    unsigned int ebo;
-    unsigned int font_tex;
+    R_Program shader;
+    R_VAO vao;
+    R_Buffer vbo;
+    R_Buffer ebo;
+    R_Texture font_tex;
     bool initialized;
     bool visible;
     float fps;

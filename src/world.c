@@ -1,5 +1,4 @@
 #include "world.h"
-#include "shader.h"
 #include "logger.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -14,7 +13,7 @@ void world_init(World *world, int render_distance) {
     world->chunks = calloc(world->capacity, sizeof(LoadedChunk));
     world->count = 0;
 #ifdef ENABLE_COMPUTE
-    world->mesh_compute_program = shader_create_compute_program("shaders/mesh.comp");
+    world->mesh_compute_program = renderer_create_compute("shaders/mesh.comp");
 #endif
 }
 
@@ -34,7 +33,7 @@ static void load_chunk(World *world, int x, int z) {
             world->chunks[i].mesh = malloc(sizeof(Mesh));
             mesh_init(world->chunks[i].mesh);
             voxel_upload_texture(&world->chunks[i].voxel_tex, world->chunks[i].chunk);
-#ifdef ENABLE_COMPUTE
+#if defined(ENABLE_COMPUTE) && !defined(RENDERER_VULKAN)
             mesh_prepare_gpu(world->chunks[i].mesh);
             mesh_generate_gpu(world->chunks[i].mesh, world->mesh_compute_program, world->chunks[i].voxel_tex, x, z);
 #else
@@ -57,7 +56,7 @@ static void unload_chunk(World *world, int index) {
     mesh_free(world->chunks[index].mesh);
     free(world->chunks[index].mesh);
     free(world->chunks[index].chunk);
-    if (world->chunks[index].voxel_tex) glDeleteTextures(1, &world->chunks[index].voxel_tex);
+    if (world->chunks[index].voxel_tex != R_INVALID_HANDLE) renderer_destroy_texture(world->chunks[index].voxel_tex);
     world->chunks[index].active = false;
     world->count--;
     LOG_DEBUG(CAT_WORLD, "Unloaded chunk %d,%d", cx, cz);
@@ -95,10 +94,10 @@ void world_update(World *world, vec3 camera_pos) {
         if (world->chunks[i].active && world->chunks[i].dirty) {
             int cx = world->chunks[i].chunk->x;
             int cz = world->chunks[i].chunk->z;
-#ifdef ENABLE_COMPUTE
-            glBindTexture(GL_TEXTURE_3D, world->chunks[i].voxel_tex);
-            glTexSubImage3D_ext(GL_TEXTURE_3D, 0, 0, 0, 0, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, GL_RED_INTEGER, GL_UNSIGNED_BYTE, world->chunks[i].chunk->blocks);
-            glBindTexture(GL_TEXTURE_3D, 0);
+#if defined(ENABLE_COMPUTE) && !defined(RENDERER_VULKAN)
+            renderer_bind_texture(R_TEX_3D, world->chunks[i].voxel_tex);
+            renderer_tex_sub_image_3d(0, 0, 0, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, world->chunks[i].chunk->blocks);
+            renderer_bind_texture(R_TEX_3D, R_INVALID_HANDLE);
             mesh_generate_gpu(world->chunks[i].mesh, world->mesh_compute_program, world->chunks[i].voxel_tex, cx, cz);
 #else
             mesh_generate_greedy(world->chunks[i].mesh, world->chunks[i].chunk);

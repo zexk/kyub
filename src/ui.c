@@ -1,7 +1,5 @@
 #include "ui.h"
 #include "input.h"
-#include "gl_ext.h"
-#include "shader.h"
 #include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,26 +38,17 @@ void ui_init(UI *ui, int width, int height) {
     ui->selected_block = BLOCK_STONE;
     ui->visible = true;
 
-    ui->shader = shader_create_program("shaders/ui.vert", "shaders/ui.frag");
-    if (!ui->shader) {
+    ui->shader = renderer_create_program("shaders/ui.vert", "shaders/ui.frag");
+    if (ui->shader == R_INVALID_HANDLE) {
         LOG_ERROR(CAT_UI, "Failed to create UI shader");
         return;
     }
 
     LOG_INFO(CAT_UI, "UI initialized successfully");
 
-    if (glCreateVertexArrays) {
-        glCreateVertexArrays(1, &ui->vao);
-    } else {
-        glGenVertexArrays(1, &ui->vao);
-    }
-    if (glCreateBuffers) {
-        glCreateBuffers(1, &ui->vbo);
-        glCreateBuffers(1, &ui->ebo);
-    } else {
-        glGenBuffers(1, &ui->vbo);
-        glGenBuffers(1, &ui->ebo);
-    }
+    ui->vao = renderer_create_vao();
+    ui->vbo = renderer_create_buffer();
+    ui->ebo = renderer_create_buffer();
 
     struct nk_allocator alloc;
     alloc.userdata.ptr = NULL;
@@ -78,12 +67,12 @@ void ui_init(UI *ui, int width, int height) {
     const void *image = nk_font_atlas_bake(&ui->atlas, &w, &h, NK_FONT_ATLAS_RGBA32);
     nk_font_atlas_end(&ui->atlas, (nk_handle){0}, NULL);
 
-    glGenTextures(1, &ui->font_tex);
-    glBindTexture(GL_TEXTURE_2D, ui->font_tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    ui->font_tex = renderer_create_texture();
+    renderer_bind_texture(R_TEX_2D, ui->font_tex);
+    renderer_tex_image_2d(w, h, image);
+    renderer_tex_param(R_TEX_2D, R_TEX_MIN_FILTER, R_TEX_LINEAR);
+    renderer_tex_param(R_TEX_2D, R_TEX_MAG_FILTER, R_TEX_LINEAR);
+    renderer_bind_texture(R_TEX_2D, R_INVALID_HANDLE);
 
     if (font) {
         nk_style_set_font(&ui->ctx, &font->handle);
@@ -94,14 +83,14 @@ void ui_init(UI *ui, int width, int height) {
 
 void ui_shutdown(UI *ui) {
     if (!ui->initialized) return;
-    if (ui->font_tex) glDeleteTextures(1, &ui->font_tex);
+    if (ui->font_tex != R_INVALID_HANDLE) renderer_destroy_texture(ui->font_tex);
     nk_buffer_free(&ui->cmds);
     nk_buffer_free(&ui->vertices);
     nk_buffer_free(&ui->elements);
-    if (ui->shader) glDeleteProgram(ui->shader);
-    if (ui->vao) glDeleteVertexArrays(1, &ui->vao);
-    if (ui->vbo) glDeleteBuffers(1, &ui->vbo);
-    if (ui->ebo) glDeleteBuffers(1, &ui->ebo);
+    if (ui->shader != R_INVALID_HANDLE) renderer_destroy_program(ui->shader);
+    if (ui->vao != R_INVALID_HANDLE) renderer_destroy_vao(ui->vao);
+    if (ui->vbo != R_INVALID_HANDLE) renderer_destroy_buffer(ui->vbo);
+    if (ui->ebo != R_INVALID_HANDLE) renderer_destroy_buffer(ui->ebo);
     ui->initialized = false;
 }
 
@@ -155,15 +144,16 @@ void ui_set_stats(UI *ui, float fps, int chunk_count, vec3 pos, vec3 dir, float 
 void ui_render(UI *ui, int width, int height) {
     if (!ui->visible || !ui->initialized) return;
 
-    glPushAttrib(GL_ENABLE_BIT | GL_BLEND);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_SCISSOR_TEST);
+    renderer_push_attrib();
+    renderer_enable(R_CAP_BLEND);
+    renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
+    renderer_disable(R_CAP_CULL_FACE);
+    renderer_disable(R_CAP_DEPTH_TEST);
+    renderer_disable(R_CAP_SCISSOR_TEST);
 
-    glUseProgram(ui->shader);
-    glUniform2f(glGetUniformLocation(ui->shader, "uScreenSize"), (float)width, (float)height);
+    renderer_use_program(ui->shader);
+    int loc = renderer_uniform_location(ui->shader, "uScreenSize");
+    renderer_uniform_vec2(loc, (float)width, (float)height);
 
     nk_buffer_clear(&ui->cmds);
     nk_buffer_clear(&ui->vertices);
@@ -225,51 +215,31 @@ void ui_render(UI *ui, int width, int height) {
 
     nk_convert(&ui->ctx, &ui->cmds, &ui->vertices, &ui->elements, &config);
 
-    if (glVertexArrayVertexBuffer && glVertexArrayElementBuffer && glNamedBufferData) {
-        glNamedBufferData(ui->vbo, ui->vertices.needed, ui->vertices.memory.ptr, GL_DYNAMIC_DRAW);
-        glVertexArrayVertexBuffer(ui->vao, 0, ui->vbo, 0, 20);
-        glVertexArrayAttribFormat(ui->vao, 0, 2, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(ui->vao, 0, 0);
-        glEnableVertexArrayAttrib(ui->vao, 0);
+    renderer_bind_vao(ui->vao);
+    renderer_bind_buffer(R_BUF_ARRAY, ui->vbo);
+    renderer_buffer_data(R_BUF_ARRAY, ui->vertices.needed, ui->vertices.memory.ptr, R_USAGE_DYNAMIC);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 20, 0);
+    renderer_enable_attrib(0);
+    renderer_attrib_pointer(1, 2, R_TYPE_FLOAT, false, 20, 8);
+    renderer_enable_attrib(1);
+    renderer_attrib_pointer(2, 4, R_TYPE_UBYTE, true, 20, 16);
+    renderer_enable_attrib(2);
 
-        glVertexArrayAttribFormat(ui->vao, 1, 2, GL_FLOAT, GL_FALSE, 8);
-        glVertexArrayAttribBinding(ui->vao, 1, 0);
-        glEnableVertexArrayAttrib(ui->vao, 1);
+    renderer_bind_buffer(R_BUF_ELEMENT, ui->ebo);
+    renderer_buffer_data(R_BUF_ELEMENT, ui->elements.needed, ui->elements.memory.ptr, R_USAGE_DYNAMIC);
 
-        glVertexArrayAttribFormat(ui->vao, 2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 16);
-        glVertexArrayAttribBinding(ui->vao, 2, 0);
-        glEnableVertexArrayAttrib(ui->vao, 2);
+    renderer_active_texture(0);
+    renderer_bind_texture(R_TEX_2D, ui->font_tex);
 
-        glNamedBufferData(ui->ebo, ui->elements.needed, ui->elements.memory.ptr, GL_DYNAMIC_DRAW);
-        glVertexArrayElementBuffer(ui->vao, ui->ebo);
-        glBindVertexArray(ui->vao);
-    } else {
-        glBindVertexArray(ui->vao);
-        glBindBuffer(GL_ARRAY_BUFFER, ui->vbo);
-        glBufferData(GL_ARRAY_BUFFER, ui->vertices.needed, ui->vertices.memory.ptr, GL_DYNAMIC_DRAW);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 20, (void*)0);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void*)8);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 20, (void*)16);
-        glEnableVertexAttribArray(2);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ui->ebo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, ui->elements.needed, ui->elements.memory.ptr, GL_DYNAMIC_DRAW);
-    }
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, ui->font_tex);
-
-    glDrawElements(GL_TRIANGLES, ui->elements.needed / sizeof(nk_ushort), GL_UNSIGNED_SHORT, 0);
+    renderer_draw_elements(R_PRIM_TRIANGLES, ui->elements.needed / sizeof(nk_ushort), 0);
 
     nk_clear(&ui->ctx);
     nk_buffer_clear(&ui->cmds);
 
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glUseProgram(0);
+    renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
+    renderer_bind_buffer(R_BUF_ELEMENT, R_INVALID_HANDLE);
+    renderer_bind_texture(R_TEX_2D, R_INVALID_HANDLE);
+    renderer_use_program(R_INVALID_HANDLE);
 
-    glPopAttrib();
+    renderer_pop_attrib();
 }

@@ -2,7 +2,7 @@
 #define MESH_H
 
 #include "voxel.h"
-#include "gl_ext.h"
+#include "renderer.h"
 
 typedef struct {
     float x, y, z, w;
@@ -15,16 +15,16 @@ typedef struct {
     Vertex *vertices;
     uint32_t vertex_count;
     uint32_t vertex_capacity;
-    GLuint vao;
-    GLuint vbo;
-    GLuint ebo;
-    GLuint indirect_draw_buffer;
-    GLuint atomic_counter_buffer;
+    R_VAO vao;
+    R_Buffer vbo;
+    R_Buffer ebo;
+    R_Buffer indirect_draw_buffer;
+    R_Buffer atomic_counter_buffer;
 } Mesh;
 
 void mesh_init(Mesh *mesh);
 void mesh_generate_greedy(Mesh *mesh, Chunk *chunk);
-void mesh_generate_gpu(Mesh *mesh, GLuint compute_program, GLuint voxel_tex, int chunk_x, int chunk_z);
+void mesh_generate_gpu(Mesh *mesh, R_Program compute_program, R_Texture voxel_tex, int chunk_x, int chunk_z);
 void mesh_upload(Mesh *mesh);
 void mesh_prepare_gpu(Mesh *mesh);
 void mesh_update_draw_count(Mesh *mesh);

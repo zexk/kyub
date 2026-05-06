@@ -1,8 +1,7 @@
 #define _POSIX_C_SOURCE 199309L
 #define NK_IMPLEMENTATION
 #include "common.h"
-#include "gl_ext.h"
-#include "shader.h"
+#include "renderer.h"
 #include "voxel.h"
 #include "mesh.h"
 #include "math3d.h"
@@ -12,10 +11,7 @@
 #include "texture.h"
 #include "ui.h"
 #include "platform.h"
-#include "platform_x11.h"
 #include "logger.h"
-#include <GL/glx.h>
-#include <GL/glext.h>
 #include <time.h>
 #include <unistd.h>
 #include <math.h>
@@ -27,9 +23,6 @@ static double get_time_s(void) {
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
-typedef void (*PFNGLXSWAPINTERVALEXTPROC)(Display*, GLXDrawable, int);
-static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
-
 int main(void) {
     if (platform_init(800, 600) != 0) return 1;
 
@@ -38,45 +31,26 @@ int main(void) {
     logger_set_level(LOG_DEBUG);
 #endif
 
-    Display *display = platform_x11_get_display();
-    Window window = platform_x11_get_window();
+    renderer_init(800, 600);
 
-    int screen_id = DefaultScreen(display);
-    int attributes[] = { GLX_RGBA, GLX_DEPTH_SIZE, 24, GLX_DOUBLEBUFFER, GLX_SAMPLE_BUFFERS, 1, GLX_SAMPLES, 4, None };
-    XVisualInfo *visual_info = glXChooseVisual(display, screen_id, attributes);
-    if (!visual_info) return 1;
+    renderer_enable(R_CAP_DEPTH_TEST);
+    renderer_enable(R_CAP_CULL_FACE);
+    renderer_enable(R_CAP_MULTISAMPLE);
 
-    GLXContext gl_context = glXCreateContext(display, visual_info, NULL, GL_TRUE);
-    glXMakeCurrent(display, window, gl_context);
-    if (!gl_ext_init()) return 1;
+    R_Program shader_program = renderer_create_program("shaders/basic.vert", "shaders/basic.frag");
+    if (shader_program == R_INVALID_HANDLE) return 1;
 
-    glXSwapIntervalEXT = (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddress((const GLubyte*)"glXSwapIntervalEXT");
-    if (!glXSwapIntervalEXT) {
-        glXSwapIntervalEXT = (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddress((const GLubyte*)"glXSwapIntervalMESA");
-    }
-    if (glXSwapIntervalEXT) {
-        glXSwapIntervalEXT(display, window, 1);
-    }
+    R_Program hud_program = renderer_create_program("shaders/hud.vert", "shaders/hud.frag");
+    if (hud_program == R_INVALID_HANDLE) return 1;
 
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glEnable(GL_MULTISAMPLE);
+    R_Program skybox_program = renderer_create_program("shaders/skybox.vert", "shaders/skybox.frag");
+    if (skybox_program == R_INVALID_HANDLE) return 1;
 
-    unsigned int shader_program = shader_create_program("shaders/basic.vert", "shaders/basic.frag");
-    if (!shader_program) return 1;
+    R_Program outline_program = renderer_create_program("shaders/outline.vert", "shaders/outline.frag");
+    if (outline_program == R_INVALID_HANDLE) return 1;
 
-    unsigned int hud_program = shader_create_program("shaders/hud.vert", "shaders/hud.frag");
-    if (!hud_program) return 1;
-
-    unsigned int skybox_program = shader_create_program("shaders/skybox.vert", "shaders/skybox.frag");
-    if (!skybox_program) return 1;
-
-    unsigned int outline_program = shader_create_program("shaders/outline.vert", "shaders/outline.frag");
-    if (!outline_program) return 1;
-
-GLuint skybox_vao, skybox_vbo;
-    glGenVertexArrays(1, &skybox_vao);
-    glGenBuffers(1, &skybox_vbo);
+R_VAO skybox_vao = renderer_create_vao();
+    R_Buffer skybox_vbo = renderer_create_buffer();
     float skybox_cube[] = {
         // Front face (-Z)
         -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
@@ -97,48 +71,69 @@ GLuint skybox_vao, skybox_vbo;
         -1.0f,  1.0f, -1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
         -1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
     };
-    glBindVertexArray(skybox_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, skybox_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(skybox_cube), skybox_cube, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
+    renderer_bind_vao(skybox_vao);
+    renderer_bind_buffer(R_BUF_ARRAY, skybox_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(skybox_cube), skybox_cube, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 0, 0);
+    renderer_enable_attrib(0);
+    renderer_bind_vao(R_INVALID_HANDLE);
 
-    GLuint outline_vao, outline_vbo;
-    glGenVertexArrays(1, &outline_vao);
-    glGenBuffers(1, &outline_vbo);
+    R_VAO outline_vao = renderer_create_vao();
+    R_Buffer outline_vbo = renderer_create_buffer();
     float outline_cube[] = {
         0,0,0, 1,0,0,   1,0,0, 1,0,1,   1,0,1, 0,0,1,   0,0,1, 0,0,0,
         0,1,0, 1,1,0,   1,1,0, 1,1,1,   1,1,1, 0,1,1,   0,1,1, 0,1,0,
         0,0,0, 0,1,0,   1,0,0, 1,1,0,   1,0,1, 1,1,1,   0,0,1, 0,1,1,
     };
-    glBindVertexArray(outline_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, outline_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(outline_cube), outline_cube, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
+    renderer_bind_vao(outline_vao);
+    renderer_bind_buffer(R_BUF_ARRAY, outline_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(outline_cube), outline_cube, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 0, 0);
+    renderer_enable_attrib(0);
+    renderer_bind_vao(R_INVALID_HANDLE);
 
-    GLuint hud_vao, hud_vbo, test_vbo;
-    glGenVertexArrays(1, &hud_vao);
-    glGenBuffers(1, &hud_vbo);
-    glGenBuffers(1, &test_vbo);
+    R_VAO overlay_vao = renderer_create_vao();
+    R_Buffer overlay_vbo = renderer_create_buffer();
+    float overlay_tri[] = { -1.0f,-1.0f,  3.0f,-1.0f,  -1.0f,3.0f };
+    renderer_bind_vao(overlay_vao);
+    renderer_bind_buffer(R_BUF_ARRAY, overlay_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(overlay_tri), overlay_tri, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 0, 0);
+    renderer_enable_attrib(0);
+    renderer_bind_vao(R_INVALID_HANDLE);
+
+    R_VAO button_vao = renderer_create_vao();
+    R_Buffer button_vbo = renderer_create_buffer();
+    float button_tri[] = {
+        -0.12f,-0.12f,  0.12f,-0.12f,  0.12f, 0.12f,
+        -0.12f,-0.12f,  0.12f, 0.12f, -0.12f, 0.12f
+    };
+    renderer_bind_vao(button_vao);
+    renderer_bind_buffer(R_BUF_ARRAY, button_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(button_tri), button_tri, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 0, 0);
+    renderer_enable_attrib(0);
+    renderer_bind_vao(R_INVALID_HANDLE);
+
+    R_VAO hud_vao = renderer_create_vao();
+    R_Buffer hud_vbo = renderer_create_buffer();
+    R_Buffer test_vbo = renderer_create_buffer();
     float crosshair[] = {
         -0.015f, 0.0f,  0.015f, 0.0f,
         0.0f, -0.02f,  0.0f, 0.02f
     };
-    glBindVertexArray(hud_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(crosshair), crosshair, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(hud_vao);
+    renderer_bind_vao(hud_vao);
+    renderer_bind_buffer(R_BUF_ARRAY, hud_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(crosshair), crosshair, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
+    renderer_enable_attrib(0);
+    renderer_bind_vao(hud_vao);
 
     float test_tri[] = {0.0f, 0.2f,  -0.3f, -0.2f,  0.3f, -0.2f};
-    glBindBuffer(GL_ARRAY_BUFFER, test_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(test_tri), test_tri, GL_STATIC_DRAW);
+    renderer_bind_buffer(R_BUF_ARRAY, test_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(test_tri), test_tri, R_USAGE_STATIC);
 
-    GLuint atlas = texture_load("assets/atlas.png");
+    R_Texture atlas = texture_load("assets/atlas.png");
 
     World world;
     world_init(&world, 2);
@@ -152,6 +147,7 @@ GLuint skybox_vao, skybox_vbo;
     ui_init(&ui, 800, 600);
 
     platform_hide_cursor(true);
+    platform_grab_mouse(true);
 
     double last_time = get_time_s();
     double last_fps_update = 0.0;
@@ -175,11 +171,18 @@ GLuint skybox_vao, skybox_vbo;
             if (paused) {
                 if (event.type == 1) {  // EVENT_KEY_DOWN
                     if (event.key.key == 'p') {
+                        ui.visible = !ui.visible;
+                    }
+                    if (event.key.key == 't') {
                         paused = false;
                         platform_hide_cursor(true);
                         platform_grab_mouse(true);
                     }
-                    if (event.key.key == 0x1B) running = false;
+                    if (event.key.key == 0x1B) {
+                        paused = false;
+                        platform_hide_cursor(true);
+                        platform_grab_mouse(true);
+                    }
                     ui_handle_key(&ui, event.key.key, true);
                 } else if (event.type == 2) {  // EVENT_KEY_UP
                     ui_handle_key(&ui, event.key.key, false);
@@ -193,7 +196,7 @@ GLuint skybox_vao, skybox_vbo;
                 } else if (event.type == 5) {  // EVENT_RESIZE
                     win_width = event.resize.width;
                     win_height = event.resize.height;
-                    glViewport(0, 0, win_width, win_height);
+                    renderer_viewport(0, 0, win_width, win_height);
                 }
             } else {
                 if (event.type == 1) {  // EVENT_KEY_DOWN
@@ -204,11 +207,18 @@ GLuint skybox_vao, skybox_vbo;
                     if (event.key.key == ' ') input_set_key(' ', true);
                     if (event.key.key == 0x10) input_set_shift(true);
                     if (event.key.key == 'p') {
+                        ui.visible = !ui.visible;
+                    }
+                    if (event.key.key == 't') {
                         paused = true;
                         platform_grab_mouse(false);
                         platform_hide_cursor(false);
                     }
-                    if (event.key.key == 0x1B) running = false;
+                    if (event.key.key == 0x1B) {
+                        paused = true;
+                        platform_grab_mouse(false);
+                        platform_hide_cursor(false);
+                    }
                 } else if (event.type == 2) {  // EVENT_KEY_UP
                     if (event.key.key == 'w') input_set_key('w', false);
                     if (event.key.key == 's') input_set_key('s', false);
@@ -231,7 +241,7 @@ GLuint skybox_vao, skybox_vbo;
                 } else if (event.type == 5) {  // EVENT_RESIZE
                     win_width = event.resize.width;
                     win_height = event.resize.height;
-                    glViewport(0, 0, win_width, win_height);
+                    renderer_viewport(0, 0, win_width, win_height);
                 } else if (event.type == 6) {  // EVENT_QUIT
                     running = false;
                 }
@@ -240,6 +250,17 @@ GLuint skybox_vao, skybox_vbo;
 
         ui_poll_mouse(&ui);
         nk_input_end(&ui.ctx);
+
+        if (paused) {
+            static bool prev_pause_click = false;
+            if (g_input.mouse_left && !prev_pause_click) {
+                float mx = 2.0f * ui.ctx.input.mouse.pos.x / win_width - 1.0f;
+                float my = 1.0f - 2.0f * ui.ctx.input.mouse.pos.y / win_height;
+                if (mx >= -0.12f && mx <= 0.12f && my >= -0.12f && my <= 0.12f)
+                    running = false;
+            }
+            prev_pause_click = g_input.mouse_left;
+        }
 
         camera_update(&camera, dt, &world);
         world_update(&world, camera.pos);
@@ -331,15 +352,17 @@ GLuint skybox_vao, skybox_vbo;
             }
         }
 
-        glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        renderer_clear(0.1f, 0.1f, 0.12f, 1.0f);
 
-        glUseProgram(shader_program);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, atlas);
-        glUniform1i(glGetUniformLocation(shader_program, "uTexture"), 0);
-        glUniform3f(glGetUniformLocation(shader_program, "uFogColor"), 0.53f, 0.81f, 0.92f);
-        glUniform1f(glGetUniformLocation(shader_program, "uFogDensity"), 0.015f);
+        renderer_use_program(shader_program);
+        renderer_active_texture(0);
+        renderer_bind_texture(R_TEX_2D, atlas);
+        int tex_loc = renderer_uniform_location(shader_program, "uTexture");
+        renderer_uniform_int(tex_loc, 0);
+        int fog_color_loc = renderer_uniform_location(shader_program, "uFogColor");
+        renderer_uniform_vec3(fog_color_loc, 0.53f, 0.81f, 0.92f);
+        int fog_density_loc = renderer_uniform_location(shader_program, "uFogDensity");
+        renderer_uniform_float(fog_density_loc, 0.015f);
 
         mat4 model = mat4_identity();
         mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
@@ -348,72 +371,99 @@ GLuint skybox_vao, skybox_vbo;
         Frustum frustum;
         frustum_extract(&frustum, mat4_multiply(projection, view));
 
-        glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, model.m);
-        glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, GL_FALSE, view.m);
-        glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, projection.m);
+        int model_loc = renderer_uniform_location(shader_program, "model");
+        renderer_uniform_mat4(model_loc, model.m);
+        int view_loc = renderer_uniform_location(shader_program, "view");
+        renderer_uniform_mat4(view_loc, view.m);
+        int proj_loc = renderer_uniform_location(shader_program, "projection");
+        renderer_uniform_mat4(proj_loc, projection.m);
 
         for (int i = 0; i < world.capacity; i++) {
             if (world.chunks[i].active && frustum_intersects_box(&frustum, world.chunks[i].chunk->min, world.chunks[i].chunk->max)) {
-                glBindVertexArray(world.chunks[i].mesh->vao);
-#ifdef ENABLE_COMPUTE
-                glBindBuffer(GL_DRAW_INDIRECT_BUFFER, world.chunks[i].mesh->indirect_draw_buffer);
-                glDrawArraysIndirect(GL_TRIANGLES, 0);
-                glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+                renderer_bind_vao(world.chunks[i].mesh->vao);
+#if defined(ENABLE_COMPUTE) && !defined(RENDERER_VULKAN)
+                renderer_bind_buffer(R_BUF_DRAW_INDIRECT, world.chunks[i].mesh->indirect_draw_buffer);
+                renderer_draw_arrays_indirect();
+                renderer_bind_buffer(R_BUF_DRAW_INDIRECT, R_INVALID_HANDLE);
 #else
-                glDrawArrays(GL_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
+                renderer_draw_arrays(R_PRIM_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
 #endif
             }
         }
 
         // Render block highlight outline
         if (hl_found) {
-            glUseProgram(outline_program);
+            renderer_use_program(outline_program);
             mat4 hl_model = mat4_translate((vec3){(float)hl_x, (float)hl_y, (float)hl_z});
-            glUniformMatrix4fv(glGetUniformLocation(outline_program, "model"), 1, GL_FALSE, hl_model.m);
-            glUniformMatrix4fv(glGetUniformLocation(outline_program, "view"), 1, GL_FALSE, view.m);
-            glUniformMatrix4fv(glGetUniformLocation(outline_program, "projection"), 1, GL_FALSE, projection.m);
-            glUniform3f(glGetUniformLocation(outline_program, "uColor"), 0.6f, 0.6f, 0.6f);
+            int ol_model_loc = renderer_uniform_location(outline_program, "model");
+            renderer_uniform_mat4(ol_model_loc, hl_model.m);
+            int ol_view_loc = renderer_uniform_location(outline_program, "view");
+            renderer_uniform_mat4(ol_view_loc, view.m);
+            int ol_proj_loc = renderer_uniform_location(outline_program, "projection");
+            renderer_uniform_mat4(ol_proj_loc, projection.m);
+            int ol_color_loc = renderer_uniform_location(outline_program, "uColor");
+            renderer_uniform_vec3(ol_color_loc, 0.6f, 0.6f, 0.6f);
 
-            glDepthMask(GL_FALSE);
-            glPolygonOffset(-1.0f, -1.0f);
-            glEnable(GL_POLYGON_OFFSET_LINE);
-            glLineWidth(3.0f);
+            renderer_depth_mask(false);
+            renderer_polygon_offset(-1.0f, -1.0f);
+            renderer_enable(R_CAP_POLYGON_OFFSET_LINE);
+            renderer_line_width(3.0f);
 
-            glBindVertexArray(outline_vao);
-            glDrawArrays(GL_LINES, 0, 24);
-            glBindVertexArray(0);
+            renderer_bind_vao(outline_vao);
+            renderer_draw_arrays(R_PRIM_LINES, 0, 24);
+            renderer_bind_vao(R_INVALID_HANDLE);
 
-            glLineWidth(1.0f);
-            glDisable(GL_POLYGON_OFFSET_LINE);
-            glDepthMask(GL_TRUE);
+            renderer_line_width(1.0f);
+            renderer_disable(R_CAP_POLYGON_OFFSET_LINE);
+            renderer_depth_mask(true);
         }
 
-        glDepthMask(GL_FALSE);
-        glDepthFunc(GL_LEQUAL);
-        glDisable(GL_CULL_FACE);
-        glUseProgram(skybox_program);
+        renderer_depth_mask(false);
+        renderer_depth_func(R_FUNC_LEQUAL);
+        renderer_disable(R_CAP_CULL_FACE);
+        renderer_use_program(skybox_program);
         mat4 skybox_projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
-        glUniformMatrix4fv(glGetUniformLocation(skybox_program, "projection"), 1, GL_FALSE, skybox_projection.m);
-        glUniformMatrix4fv(glGetUniformLocation(skybox_program, "view"), 1, GL_FALSE, view.m);
-        glBindVertexArray(skybox_vao);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
-        glBindVertexArray(0);
-        glEnable(GL_CULL_FACE);
-        glDepthFunc(GL_LESS);
-        glDepthMask(GL_TRUE);
+        int sb_proj_loc = renderer_uniform_location(skybox_program, "projection");
+        renderer_uniform_mat4(sb_proj_loc, skybox_projection.m);
+        int sb_view_loc = renderer_uniform_location(skybox_program, "view");
+        renderer_uniform_mat4(sb_view_loc, view.m);
+        renderer_bind_vao(skybox_vao);
+        renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 36);
+        renderer_bind_vao(R_INVALID_HANDLE);
+        renderer_enable(R_CAP_CULL_FACE);
+        renderer_depth_func(R_FUNC_LESS);
+        renderer_depth_mask(true);
 
-        glDisable(GL_DEPTH_TEST);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glUseProgram(hud_program);
-        glBindVertexArray(hud_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
-        glUniform3f(glGetUniformLocation(hud_program, "uColor"), 0.7f, 0.7f, 0.7f);
-        glUniform1f(glGetUniformLocation(hud_program, "uAlpha"), 1.0f);
-        glDrawArrays(GL_LINES, 0, 4);
-        glUseProgram(0);
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        renderer_disable(R_CAP_DEPTH_TEST);
+        renderer_enable(R_CAP_BLEND);
+        renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
+        renderer_use_program(hud_program);
+        renderer_bind_vao(hud_vao);
+        renderer_bind_buffer(R_BUF_ARRAY, hud_vbo);
+        int hud_color_loc = renderer_uniform_location(hud_program, "uColor");
+        renderer_uniform_vec3(hud_color_loc, 0.7f, 0.7f, 0.7f);
+        int hud_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
+        renderer_uniform_float(hud_alpha_loc, 1.0f);
+        renderer_draw_arrays(R_PRIM_LINES, 0, 4);
+        renderer_use_program(R_INVALID_HANDLE);
+        renderer_bind_vao(R_INVALID_HANDLE);
+        renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
+
+        if (paused) {
+            renderer_use_program(hud_program);
+            int p_color_loc = renderer_uniform_location(hud_program, "uColor");
+            renderer_uniform_vec3(p_color_loc, 0.0f, 0.0f, 0.0f);
+            int p_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
+            renderer_uniform_float(p_alpha_loc, 0.5f);
+            renderer_bind_vao(overlay_vao);
+            renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
+            renderer_uniform_vec3(p_color_loc, 1.0f, 1.0f, 1.0f);
+            renderer_uniform_float(p_alpha_loc, 1.0f);
+            renderer_bind_vao(button_vao);
+            renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 6);
+            renderer_bind_vao(R_INVALID_HANDLE);
+            renderer_use_program(R_INVALID_HANDLE);
+        }
 
         int active_chunks = 0;
         for (int i = 0; i < world.capacity; i++) {
@@ -428,24 +478,32 @@ GLuint skybox_vao, skybox_vbo;
 
         world.render_distance = ui.render_distance;
 
-        glEnable(GL_DEPTH_TEST);
+        renderer_enable(R_CAP_DEPTH_TEST);
 
-        glXSwapBuffers(display, window);
+        renderer_swap();
 
-        if (glXSwapIntervalEXT) {
-            static bool prev_fps_unlimited = false;
-            if (ui.fps_unlimited != prev_fps_unlimited) {
-                glXSwapIntervalEXT(display, window, ui.fps_unlimited ? 0 : 1);
-                prev_fps_unlimited = ui.fps_unlimited;
-            }
-        }
+        renderer_swap_interval(ui.fps_unlimited ? 0 : 1);
     }
 
     ui_shutdown(&ui);
     world_free(&world);
-    glDeleteProgram(shader_program);
-    glXMakeCurrent(display, None, NULL);
-    glXDestroyContext(display, gl_context);
+    renderer_destroy_program(shader_program);
+    renderer_destroy_program(hud_program);
+    renderer_destroy_program(skybox_program);
+    renderer_destroy_program(outline_program);
+    renderer_destroy_vao(skybox_vao);
+    renderer_destroy_buffer(skybox_vbo);
+    renderer_destroy_vao(outline_vao);
+    renderer_destroy_buffer(outline_vbo);
+    renderer_destroy_vao(overlay_vao);
+    renderer_destroy_buffer(overlay_vbo);
+    renderer_destroy_vao(button_vao);
+    renderer_destroy_buffer(button_vbo);
+    renderer_destroy_vao(hud_vao);
+    renderer_destroy_buffer(hud_vbo);
+    renderer_destroy_buffer(test_vbo);
+    renderer_destroy_texture(atlas);
+    renderer_shutdown();
 
 #ifdef ENABLE_LOGGER
     logger_shutdown();

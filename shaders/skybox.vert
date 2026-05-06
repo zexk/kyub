@@ -1,14 +1,17 @@
-#version 330 core
-layout (location = 0) in vec3 aPos;
+#version 450 core
 
-uniform mat4 view;
-uniform mat4 projection;
+layout(location = 0) in vec3 aPos;
 
-out vec3 pos;
+layout(push_constant) uniform PushConstants {
+    mat4 view;
+    mat4 projection;
+} pc;
+
+layout(location = 0) out vec3 pos;
 
 void main() {
     pos = aPos;
-    mat4 view_rotation = mat4(mat3(view));
-    vec4 clip_pos = projection * view_rotation * vec4(aPos, 1.0);
+    mat4 view_rotation = mat4(mat3(pc.view));
+    vec4 clip_pos = pc.projection * view_rotation * vec4(aPos, 1.0);
     gl_Position = clip_pos.xyww;
 }

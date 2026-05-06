@@ -1,19 +1,15 @@
-#version 450 core
+#version 330 core
+out vec4 FragColor;
 
-layout(location = 0) out vec4 FragColor;
+in vec3 ourColor;
+in vec3 Normal;
+in float AO;
+in vec2 TexCoord;
+in vec3 view_pos;
 
-layout(location = 0) in vec3 ourColor;
-layout(location = 1) in vec3 Normal;
-layout(location = 2) in float AO;
-layout(location = 3) in vec2 TexCoord;
-layout(location = 4) in vec3 view_pos;
-
-layout(set = 0, binding = 0) uniform sampler2D uTexture;
-
-layout(push_constant) uniform PushConstants {
-    layout(offset = 192) vec3 uFogColor;
-    layout(offset = 204) float uFogDensity;
-} pc;
+uniform sampler2D uTexture;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
 
 void main() {
     // Simple directional lighting
@@ -31,9 +27,9 @@ void main() {
     
     // Distance fog
     float dist = length(view_pos);
-    float fog = exp(-dist * pc.uFogDensity);
+    float fog = exp(-dist * uFogDensity);
     fog = clamp(fog, 0.0, 1.0);
-    vec3 result = mix(pc.uFogColor, lit_color, fog);
+    vec3 result = mix(uFogColor, lit_color, fog);
     
     FragColor = vec4(result, 1.0);
 }
