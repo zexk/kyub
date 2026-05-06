@@ -9,6 +9,7 @@ typedef struct {
     Chunk *chunk;
     Mesh *mesh;
     bool active;
+    bool dirty;
     GLuint voxel_tex;
 } LoadedChunk;
 

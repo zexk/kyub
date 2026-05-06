@@ -42,6 +42,7 @@ static void load_chunk(World *world, int x, int z) {
             mesh_upload(world->chunks[i].mesh);
 #endif
             world->chunks[i].active = true;
+            world->chunks[i].dirty = false;
             world->count++;
             LOG_DEBUG(CAT_WORLD, "Loaded chunk %d,%d (slot %d)", x, z, i);
             return;
@@ -68,7 +69,7 @@ void world_update(World *world, vec3 camera_pos) {
     if (camera_pos.x < 0) cx--;
     if (camera_pos.z < 0) cz--;
 
-    // Load new
+    // Load new chunks
     for (int x = cx - world->render_distance; x <= cx + world->render_distance; x++) {
         for (int z = cz - world->render_distance; z <= cz + world->render_distance; z++) {
             if (!chunk_is_loaded(world, x, z)) {
@@ -77,7 +78,7 @@ void world_update(World *world, vec3 camera_pos) {
         }
     }
 
-    // Unload old
+    // Unload old chunks
     for (int i = 0; i < world->capacity; i++) {
         if (world->chunks[i].active) {
             int dx = abs(world->chunks[i].chunk->x - cx);
@@ -85,6 +86,24 @@ void world_update(World *world, vec3 camera_pos) {
             if (dx > world->render_distance + 2 || dz > world->render_distance + 2) {
                 unload_chunk(world, i);
             }
+        }
+    }
+
+    // Rebuild dirty chunks (deferred mesh update)
+    for (int i = 0; i < world->capacity; i++) {
+        if (world->chunks[i].active && world->chunks[i].dirty) {
+            int cx = world->chunks[i].chunk->x;
+            int cz = world->chunks[i].chunk->z;
+#ifdef ENABLE_COMPUTE
+            glBindTexture(GL_TEXTURE_3D, world->chunks[i].voxel_tex);
+            glTexSubImage3D_ext(GL_TEXTURE_3D, 0, 0, 0, 0, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, GL_RED_INTEGER, GL_UNSIGNED_BYTE, world->chunks[i].chunk->blocks);
+            glBindTexture(GL_TEXTURE_3D, 0);
+            mesh_generate_gpu(world->chunks[i].mesh, world->mesh_compute_program, world->chunks[i].voxel_tex, cx, cz);
+#else
+            mesh_generate_greedy(world->chunks[i].mesh, world->chunks[i].chunk);
+            mesh_upload(world->chunks[i].mesh);
+#endif
+            world->chunks[i].dirty = false;
         }
     }
 }
@@ -130,14 +149,5 @@ void world_set_block(World *world, int x, int y, int z, BlockType type) {
     int lx = x - cx * CHUNK_SIZE;
     int lz = z - cz * CHUNK_SIZE;
     lc->chunk->blocks[lx][y][lz] = type;
-#ifdef ENABLE_COMPUTE
-    // Update voxel texture on GPU. Swap X and Z offsets for GL layout.
-    glBindTexture(GL_TEXTURE_3D, lc->voxel_tex);
-    glTexSubImage3D_ext(GL_TEXTURE_3D, 0, lz, y, lx, 1, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &lc->chunk->blocks[lx][y][lz]);
-    glBindTexture(GL_TEXTURE_3D, 0);
-    mesh_generate_gpu(lc->mesh, world->mesh_compute_program, lc->voxel_tex, cx, cz);
-#else
-    mesh_generate_greedy(lc->mesh, lc->chunk);
-    mesh_upload(lc->mesh);
-#endif
+    lc->dirty = true;
 }
