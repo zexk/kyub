@@ -150,6 +150,7 @@ int main(void) {
                     if (event.key.key == 's') input_set_key('s', true);
                     if (event.key.key == 'a') input_set_key('a', true);
                     if (event.key.key == 'd') input_set_key('d', true);
+                    if (event.key.key == ' ') input_set_key(' ', true);
                     if (event.key.key == 0x10) input_set_shift(true);
                     if (event.key.key == 'p') {
                         paused = true;
@@ -162,6 +163,7 @@ int main(void) {
                     if (event.key.key == 's') input_set_key('s', false);
                     if (event.key.key == 'a') input_set_key('a', false);
                     if (event.key.key == 'd') input_set_key('d', false);
+                    if (event.key.key == ' ') input_set_key(' ', false);
                     if (event.key.key == 0x10) input_set_shift(false);
                 } else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
                     input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
@@ -188,7 +190,7 @@ int main(void) {
         ui_poll_mouse(&ui);
         nk_input_end(&ui.ctx);
 
-        camera_update(&camera, dt);
+        camera_update(&camera, dt, &world);
         world_update(&world, camera.pos);
 
         if (!paused) {

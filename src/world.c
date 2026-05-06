@@ -134,6 +134,10 @@ BlockType world_get_block(World *world, int x, int y, int z) {
     return lc->chunk->blocks[lx][y][lz];
 }
 
+bool world_is_solid(World *world, int x, int y, int z) {
+    return world_get_block(world, x, y, z) != BLOCK_AIR;
+}
+
 void world_set_block(World *world, int x, int y, int z, BlockType type) {
     if (y < 0 || y >= CHUNK_SIZE) return;
     int cx = (int)floorf((float)x / CHUNK_SIZE);
