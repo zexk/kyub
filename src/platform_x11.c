@@ -1,5 +1,6 @@
 #include "platform_x11.h"
 #include <X11/Xutil.h>
+#include <stdio.h>
 #include <string.h>
 
 Display *g_x11_display;
@@ -12,6 +13,13 @@ static int g_screen;
 static Colormap g_colormap;
 static Window g_root;
 static Cursor g_blank_pixmap_cursor;
+
+#define PLATFORM_EVENT_KEY_DOWN 1
+#define PLATFORM_EVENT_KEY_UP 2
+#define PLATFORM_EVENT_MOUSE_BUTTON 3
+#define PLATFORM_EVENT_MOUSE_MOTION 4
+#define PLATFORM_EVENT_RESIZE 5
+#define PLATFORM_EVENT_QUIT 6
 
 static int keysym_to_key(int keysym) {
     switch (keysym) {
@@ -91,22 +99,22 @@ bool platform_x11_poll_event(Event *event) {
     memset(event, 0, sizeof(Event));
     event->type = EVENT_NONE;
 
-    if (ev.type == KeyPress) {
+if (ev.type == KeyPress) {
         KeySym keysym = XLookupKeysym(&ev.xkey, 0);
         int key = keysym_to_key(keysym);
-        event->type = EVENT_KEY_DOWN;
+        event->type = PLATFORM_EVENT_KEY_DOWN;
         event->key.key = key;
         event->key.down = true;
     } else if (ev.type == KeyRelease) {
         KeySym keysym = XLookupKeysym(&ev.xkey, 0);
         int key = keysym_to_key(keysym);
-        event->type = EVENT_KEY_UP;
+        event->type = PLATFORM_EVENT_KEY_UP;
         event->key.key = key;
         event->key.down = false;
     } else if (ev.type == ButtonPress) {
         MouseButton btn = (ev.xbutton.button == 1) ? MOUSE_BUTTON_LEFT :
                       (ev.xbutton.button == 2) ? MOUSE_BUTTON_MIDDLE : MOUSE_BUTTON_RIGHT;
-        event->type = EVENT_MOUSE_BUTTON;
+        event->type = PLATFORM_EVENT_MOUSE_BUTTON;
         event->mouse_button.x = ev.xbutton.x;
         event->mouse_button.y = ev.xbutton.y;
         event->mouse_button.button = btn;
@@ -114,21 +122,21 @@ bool platform_x11_poll_event(Event *event) {
     } else if (ev.type == ButtonRelease) {
         MouseButton btn = (ev.xbutton.button == 1) ? MOUSE_BUTTON_LEFT :
                       (ev.xbutton.button == 2) ? MOUSE_BUTTON_MIDDLE : MOUSE_BUTTON_RIGHT;
-        event->type = EVENT_MOUSE_BUTTON;
+        event->type = PLATFORM_EVENT_MOUSE_BUTTON;
         event->mouse_button.x = ev.xbutton.x;
         event->mouse_button.y = ev.xbutton.y;
         event->mouse_button.button = btn;
         event->mouse_button.down = false;
     } else if (ev.type == MotionNotify) {
-        event->type = EVENT_MOUSE_MOTION;
+        event->type = PLATFORM_EVENT_MOUSE_MOTION;
         event->mouse_motion.x = ev.xmotion.x;
         event->mouse_motion.y = ev.xmotion.y;
     } else if (ev.type == ClientMessage) {
         if ((Atom)ev.xclient.data.l[0] == g_x11_wm_delete_window) {
-            event->type = EVENT_QUIT;
+            event->type = PLATFORM_EVENT_QUIT;
         }
     } else if (ev.type == ConfigureNotify) {
-        event->type = EVENT_RESIZE;
+        event->type = PLATFORM_EVENT_RESIZE;
         event->resize.width = ev.xconfigure.width;
         event->resize.height = ev.xconfigure.height;
         g_x11_width = event->resize.width;

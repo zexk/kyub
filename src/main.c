@@ -96,30 +96,30 @@ int main(void) {
         double dt = now - last_time;
         last_time = now;
 
+        nk_input_begin(&ui.ctx);
         Event event;
         while (platform_poll_event(&event)) {
             if (paused) {
-                if (event.type == EVENT_KEY_DOWN) {
-                    if (event.key.key == 'p') paused = false;
+                if (event.type == 1) {  // EVENT_KEY_DOWN
+                    if (event.key.key == 'p') {
+                        paused = false;
+                        platform_hide_cursor(true);
+                        platform_grab_mouse(true);
+                    }
                     if (event.key.key == 0x1B) running = false;
                     ui_handle_key(&ui, event.key.key, true);
-                } else if (event.type == EVENT_KEY_UP) {
+                } else if (event.type == 2) {  // EVENT_KEY_UP
                     ui_handle_key(&ui, event.key.key, false);
-                } else if (event.type == EVENT_MOUSE_BUTTON) {
-                    int btn = (event.mouse_button.button == MOUSE_BUTTON_LEFT) ? NK_BUTTON_LEFT :
-                            (event.mouse_button.button == MOUSE_BUTTON_MIDDLE) ? NK_BUTTON_MIDDLE : NK_BUTTON_RIGHT;
-                    ui_handle_mouse(&ui, event.mouse_button.x, event.mouse_button.y, btn, event.mouse_button.down);
-                } else if (event.type == EVENT_MOUSE_MOTION) {
-                    ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y, 0, false);
-                } else if (event.type == EVENT_RESIZE) {
-                    win_width = event.resize.width;
-                    win_height = event.resize.height;
-                    glViewport(0, 0, win_width, win_height);
-                } else if (event.type == EVENT_QUIT) {
-                    running = false;
+} else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
+                    ui_handle_mouse(&ui, event.mouse_button.x, event.mouse_button.y);
+                    input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
+                } else if (event.type == 4) {  // EVENT_MOUSE_MOTION
+                    if (ui_is_visible(&ui)) {
+                        ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y);
+                    }
                 }
             } else {
-                if (event.type == EVENT_KEY_DOWN) {
+                if (event.type == 1) {  // EVENT_KEY_DOWN
                     if (event.key.key == 'w') input_set_key('w', true);
                     if (event.key.key == 's') input_set_key('s', true);
                     if (event.key.key == 'a') input_set_key('a', true);
@@ -131,15 +131,15 @@ int main(void) {
                         platform_hide_cursor(false);
                     }
                     if (event.key.key == 0x1B) running = false;
-                } else if (event.type == EVENT_KEY_UP) {
+                } else if (event.type == 2) {  // EVENT_KEY_UP
                     if (event.key.key == 'w') input_set_key('w', false);
                     if (event.key.key == 's') input_set_key('s', false);
                     if (event.key.key == 'a') input_set_key('a', false);
                     if (event.key.key == 'd') input_set_key('d', false);
                     if (event.key.key == 0x10) input_set_shift(false);
-                } else if (event.type == EVENT_MOUSE_BUTTON) {
+                } else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
                     input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
-                } else if (event.type == EVENT_MOUSE_MOTION) {
+                } else if (event.type == 4) {  // EVENT_MOUSE_MOTION
                     int dx = event.mouse_motion.x - win_width / 2;
                     int dy = event.mouse_motion.y - win_height / 2;
                     if (dx != 0 || dy != 0) {
@@ -147,61 +147,64 @@ int main(void) {
                         platform_warp_mouse(win_width / 2, win_height / 2);
                     }
                     if (ui_is_visible(&ui)) {
-                        ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y, 0, false);
+                        ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y);
                     }
-                } else if (event.type == EVENT_RESIZE) {
+                } else if (event.type == 5) {  // EVENT_RESIZE
                     win_width = event.resize.width;
                     win_height = event.resize.height;
                     glViewport(0, 0, win_width, win_height);
-                } else if (event.type == EVENT_QUIT) {
+                } else if (event.type == 6) {  // EVENT_QUIT
                     running = false;
                 }
             }
         }
 
+        ui_poll_mouse(&ui);
         nk_input_end(&ui.ctx);
 
         camera_update(&camera, dt);
         world_update(&world, camera.pos);
 
-        static bool prev_left = false, prev_right = false;
-        if (g_input.mouse_left && !prev_left) {
-            vec3 dir = camera.front;
-            vec3 pos = camera.pos;
-            int hit_x = -1, hit_y = -1, hit_z = -1;
-            for (float t = 0; t < 8.0f; t += 0.05f) {
-                vec3 p = vec3_add(pos, vec3_mul(dir, t));
-                int bx = (int)floorf(p.x);
-                int by = (int)floorf(p.y);
-                int bz = (int)floorf(p.z);
-                BlockType b = world_get_block(&world, bx, by, bz);
-                if (b != BLOCK_AIR) {
-                    hit_x = bx; hit_y = by; hit_z = bz;
-                    break;
+        if (!paused) {
+            static bool prev_left = false, prev_right = false;
+            if (g_input.mouse_left && !prev_left) {
+                vec3 dir = camera.front;
+                vec3 pos = camera.pos;
+                int hit_x = -1, hit_y = -1, hit_z = -1;
+                for (float t = 0; t < 8.0f; t += 0.05f) {
+                    vec3 p = vec3_add(pos, vec3_mul(dir, t));
+                    int bx = (int)floorf(p.x);
+                    int by = (int)floorf(p.y);
+                    int bz = (int)floorf(p.z);
+                    BlockType b = world_get_block(&world, bx, by, bz);
+                    if (b != BLOCK_AIR) {
+                        hit_x = bx; hit_y = by; hit_z = bz;
+                        break;
+                    }
                 }
+                if (hit_x >= 0) world_set_block(&world, hit_x, hit_y, hit_z, BLOCK_AIR);
             }
-            if (hit_x >= 0) world_set_block(&world, hit_x, hit_y, hit_z, BLOCK_AIR);
-        }
-        if (g_input.mouse_right && !prev_right) {
-            vec3 dir = camera.front;
-            vec3 pos = camera.pos;
-            int prev_x = -1, prev_y = -1, prev_z = -1;
-            for (float t = 0; t < 8.0f; t += 0.05f) {
-                vec3 p = vec3_add(pos, vec3_mul(dir, t));
-                int bx = (int)floorf(p.x);
-                int by = (int)floorf(p.y);
-                int bz = (int)floorf(p.z);
-                BlockType b = world_get_block(&world, bx, by, bz);
-                if (b != BLOCK_AIR) {
-                    if (prev_x >= 0 && world_get_block(&world, prev_x, prev_y, prev_z) == BLOCK_AIR)
-                        world_set_block(&world, prev_x, prev_y, prev_z, ui.selected_block);
-                    break;
+            if (g_input.mouse_right && !prev_right) {
+                vec3 dir = camera.front;
+                vec3 pos = camera.pos;
+                int prev_x = -1, prev_y = -1, prev_z = -1;
+                for (float t = 0; t < 8.0f; t += 0.05f) {
+                    vec3 p = vec3_add(pos, vec3_mul(dir, t));
+                    int bx = (int)floorf(p.x);
+                    int by = (int)floorf(p.y);
+                    int bz = (int)floorf(p.z);
+                    BlockType b = world_get_block(&world, bx, by, bz);
+                    if (b != BLOCK_AIR) {
+                        if (prev_x >= 0 && world_get_block(&world, prev_x, prev_y, prev_z) == BLOCK_AIR)
+                            world_set_block(&world, prev_x, prev_y, prev_z, ui.selected_block);
+                        break;
                 }
                 prev_x = bx; prev_y = by; prev_z = bz;
             }
         }
         prev_left = g_input.mouse_left;
         prev_right = g_input.mouse_right;
+        }
 
         glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

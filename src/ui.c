@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "input.h"
 #include "gl_ext.h"
 #include "shader.h"
 #include <stdio.h>
@@ -109,14 +110,34 @@ bool ui_is_visible(UI *ui) {
     return ui->visible;
 }
 
-void ui_handle_mouse(UI *ui, int x, int y, int button, bool pressed) {
+static int nk_key_from_key(int key) {
+    switch (key) {
+        case 0x26: return NK_KEY_UP;
+        case 0x28: return NK_KEY_DOWN;
+        case 0x25: return NK_KEY_LEFT;
+        case 0x27: return NK_KEY_RIGHT;
+        case 0x0D: return NK_KEY_ENTER;
+        case 0x09: return NK_KEY_TAB;
+        case 0x08: return NK_KEY_BACKSPACE;
+        default: return key;
+    }
+}
+
+void ui_handle_mouse(UI *ui, int x, int y) {
     if (!ui->visible || !ui->initialized) return;
-    nk_input_button(&ui->ctx, button, x, y, pressed);
+    nk_input_motion(&ui->ctx, x, y);
 }
 
 void ui_handle_key(UI *ui, int key, bool pressed) {
     if (!ui->visible || !ui->initialized) return;
-    nk_input_key(&ui->ctx, key, pressed);
+    int nk_key = nk_key_from_key(key);
+    nk_input_key(&ui->ctx, nk_key, pressed);
+}
+
+void ui_poll_mouse(UI *ui) {
+    if (!ui->visible || !ui->initialized) return;
+    nk_input_button(&ui->ctx, NK_BUTTON_LEFT, ui->ctx.input.mouse.pos.x, ui->ctx.input.mouse.pos.y, g_input.mouse_left);
+    nk_input_button(&ui->ctx, NK_BUTTON_RIGHT, ui->ctx.input.mouse.pos.x, ui->ctx.input.mouse.pos.y, g_input.mouse_right);
 }
 
 void ui_set_stats(UI *ui, float fps, int chunk_count, vec3 pos, vec3 dir, float yaw, float pitch) {
