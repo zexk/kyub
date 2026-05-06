@@ -97,16 +97,22 @@ void camera_update(Camera *cam, float dt, World *world) {
     cam->velocity.y -= GRAVITY * dt;
     cam->pos.y += cam->velocity.y * dt;
 
-    // Ground collision detection using precise check
-    vec3 current_pos = {cam->pos.x, cam->pos.y, cam->pos.z};
-    int feet_y = (int)(cam->pos.y - PLAYER_EYES_HEIGHT);
+    // Ground collision - only check feet level, not head
+    if (cam->velocity.y < 0) {
+        float feet_y = cam->pos.y - PLAYER_EYES_HEIGHT;
+        int feet_cell = (int)floorf(feet_y);
+        float hw = PLAYER_HALF_WIDTH;
 
-    if (world_is_solid(world, (int)current_pos.x, feet_y, (int)current_pos.z) ||
-        world_is_solid(world, (int)current_pos.x, feet_y + 1, (int)current_pos.z)) {
-        if (cam->velocity.y < 0) {
-            cam->pos.y = (float)(feet_y + 1) + PLAYER_EYES_HEIGHT;
+        if (world_is_solid(world, (int)floorf(cam->pos.x - hw), feet_cell, (int)floorf(cam->pos.z - hw)) ||
+            world_is_solid(world, (int)floorf(cam->pos.x + hw), feet_cell, (int)floorf(cam->pos.z - hw)) ||
+            world_is_solid(world, (int)floorf(cam->pos.x - hw), feet_cell, (int)floorf(cam->pos.z + hw)) ||
+            world_is_solid(world, (int)floorf(cam->pos.x + hw), feet_cell, (int)floorf(cam->pos.z + hw))) {
+
+            cam->pos.y = (float)(feet_cell + 1) + PLAYER_EYES_HEIGHT;
             cam->velocity.y = 0.0f;
             cam->grounded = true;
+        } else {
+            cam->grounded = false;
         }
     } else {
         cam->grounded = false;
