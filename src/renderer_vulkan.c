@@ -1101,13 +1101,79 @@ typedef enum {
     VERTEX_FORMAT_SKYBOX,    /* 1 attr: pos3, stride=12 */
     VERTEX_FORMAT_OUTLINE,   /* 1 attr: pos3, stride=12 */
     VERTEX_FORMAT_HUD,       /* 1 attr: pos2, stride=8 */
+    VERTEX_FORMAT_UI,        /* 3 attrs: pos2, uv2, color4, stride=32 */
 } VertexFormat;
 
+/* Pipeline configuration - describes all fixed-function state for a pipeline */
+typedef struct {
+    VertexFormat vformat;
+    VkPrimitiveTopology topology;
+    VkBool32 depth_test_enable;
+    VkBool32 depth_write_enable;
+    VkCompareOp depth_compare;
+    VkCullModeFlags cull_mode;
+    VkBool32 blend_enable;
+    VkBlendFactor blend_src;
+    VkBlendFactor blend_dst;
+    bool has_texture;           /* needs descriptor set for sampler */
+    VkBool32 depth_bias_enable; /* for polygon offset */
+    uint32_t push_constant_size;
+} PipelineConfig;
+
+static void get_pipeline_config(const char *vert_path, const char *frag_path, PipelineConfig *cfg) {
+    (void)frag_path;
+    
+    /* Default: terrain/basic shader */
+    *cfg = (PipelineConfig){
+        .vformat = VERTEX_FORMAT_TERRAIN,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .depth_test_enable = VK_TRUE,
+        .depth_write_enable = VK_TRUE,
+        .depth_compare = VK_COMPARE_OP_LESS,
+        .cull_mode = VK_CULL_MODE_BACK_BIT,
+        .blend_enable = VK_FALSE,
+        .blend_src = VK_BLEND_FACTOR_SRC_ALPHA,
+        .blend_dst = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .has_texture = true,
+        .depth_bias_enable = VK_FALSE,
+        .push_constant_size = 256,
+    };
+    
+    if (strstr(vert_path, "skybox")) {
+        cfg->vformat = VERTEX_FORMAT_SKYBOX;
+        cfg->depth_write_enable = VK_FALSE;
+        cfg->depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL; /* For xyww depth trick */
+        cfg->has_texture = false;
+        cfg->push_constant_size = 128;
+    } else if (strstr(vert_path, "outline")) {
+        cfg->vformat = VERTEX_FORMAT_OUTLINE;
+        cfg->topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        cfg->depth_write_enable = VK_FALSE;
+        cfg->cull_mode = VK_CULL_MODE_NONE;
+        cfg->depth_bias_enable = VK_TRUE; /* Always enable for outline */
+        cfg->has_texture = false;
+        cfg->push_constant_size = 208; /* 3 matrices + uColor */
+    } else if (strstr(vert_path, "ui")) {
+        cfg->vformat = VERTEX_FORMAT_UI;
+        cfg->depth_test_enable = VK_FALSE;
+        cfg->depth_write_enable = VK_FALSE;
+        cfg->cull_mode = VK_CULL_MODE_NONE;
+        cfg->blend_enable = VK_TRUE;
+        cfg->has_texture = true; /* UI needs font texture */
+        cfg->push_constant_size = 8; /* uScreenSize vec2 */
+    } else if (strstr(vert_path, "hud")) {
+        cfg->vformat = VERTEX_FORMAT_HUD;
+        cfg->depth_test_enable = VK_FALSE;
+        cfg->depth_write_enable = VK_FALSE;
+        cfg->cull_mode = VK_CULL_MODE_NONE;
+        cfg->blend_enable = VK_TRUE;
+        cfg->has_texture = false;
+        cfg->push_constant_size = 16; /* uColor + uAlpha */
+    }
+}
+
 static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule frag,
-                                           VkPipelineLayout layout, VkPrimitiveTopology topology,
-                                           bool depth_test, bool depth_write, VkCullModeFlagBits cull,
-                                           VertexFormat vformat, VkBool32 blend_enable,
-                                           VkBlendFactor blend_src, VkBlendFactor blend_dst) {
+                                           VkPipelineLayout layout, const PipelineConfig *cfg) {
     VkPipelineShaderStageCreateInfo vert_stage = {0};
     vert_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vert_stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -1121,16 +1187,16 @@ static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
     frag_stage.pName = "main";
     
     VkPipelineShaderStageCreateInfo stages[] = {vert_stage, frag_stage};
-    
+
     /* Configure vertex input based on format */
     VkVertexInputBindingDescription binding = {0};
     binding.binding = 0;
     binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    
+
     VkVertexInputAttributeDescription attrs[5] = {0};
     uint32_t attr_count = 0;
-    
-    switch (vformat) {
+
+    switch (cfg->vformat) {
         case VERTEX_FORMAT_TERRAIN:
             /* Terrain: pos3, color3, normal3, ao1, uv2 - stride=64 */
             binding.stride = 64;
@@ -1185,14 +1251,39 @@ static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
         case VERTEX_FORMAT_HUD:
             /* HUD: pos2 only - stride=8 */
             binding.stride = 8;
-            
+
             /* Location 0: aPos (vec2) */
             attrs[0].location = 0;
             attrs[0].binding = 0;
             attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
             attrs[0].offset = 0;
-            
+
             attr_count = 1;
+            break;
+
+        case VERTEX_FORMAT_UI:
+            /* UI: pos2, uv2, color4 - stride=32 */
+            binding.stride = 32;
+
+            /* Location 0: aPos (vec2) */
+            attrs[0].location = 0;
+            attrs[0].binding = 0;
+            attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+            attrs[0].offset = 0;
+
+            /* Location 1: aUV (vec2) */
+            attrs[1].location = 1;
+            attrs[1].binding = 0;
+            attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
+            attrs[1].offset = 8;
+
+            /* Location 2: aColor (vec4) */
+            attrs[2].location = 2;
+            attrs[2].binding = 0;
+            attrs[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            attrs[2].offset = 16;
+
+            attr_count = 3;
             break;
     }
     
@@ -1205,44 +1296,44 @@ static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
     
     VkPipelineInputAssemblyStateCreateInfo input_assembly = {0};
     input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = topology;
+    input_assembly.topology = cfg->topology;
     input_assembly.primitiveRestartEnable = VK_FALSE;
-    
+
     VkPipelineViewportStateCreateInfo viewport_state = {0};
     viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewport_state.viewportCount = 1;
     viewport_state.scissorCount = 1;
-    
+
     VkPipelineRasterizationStateCreateInfo raster = {0};
     raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     raster.depthClampEnable = VK_FALSE;
     raster.rasterizerDiscardEnable = VK_FALSE;
     raster.polygonMode = VK_POLYGON_MODE_FILL;
-    raster.cullMode = cull;
+    raster.cullMode = cfg->cull_mode;
     raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    raster.depthBiasEnable = VK_FALSE;
+    raster.depthBiasEnable = cfg->depth_bias_enable;
     raster.lineWidth = 1.0f;
-    
+
     VkPipelineMultisampleStateCreateInfo multisample = {0};
     multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    
+
     VkPipelineDepthStencilStateCreateInfo depth_stencil = {0};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = depth_test;
-    depth_stencil.depthWriteEnable = depth_write;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil.depthTestEnable = cfg->depth_test_enable;
+    depth_stencil.depthWriteEnable = cfg->depth_write_enable;
+    depth_stencil.depthCompareOp = cfg->depth_compare;
     depth_stencil.stencilTestEnable = VK_FALSE;
-    
+
     VkPipelineColorBlendAttachmentState color_blend = {0};
     color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    color_blend.blendEnable = blend_enable;
-    color_blend.srcColorBlendFactor = blend_src;
-    color_blend.dstColorBlendFactor = blend_dst;
+    color_blend.blendEnable = cfg->blend_enable;
+    color_blend.srcColorBlendFactor = cfg->blend_src;
+    color_blend.dstColorBlendFactor = cfg->blend_dst;
     color_blend.colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend.srcAlphaBlendFactor = blend_src;
-    color_blend.dstAlphaBlendFactor = blend_dst;
+    color_blend.srcAlphaBlendFactor = cfg->blend_src;
+    color_blend.dstAlphaBlendFactor = cfg->blend_dst;
     color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
     
     VkPipelineColorBlendStateCreateInfo blend_state = {0};
@@ -1299,7 +1390,7 @@ static bool g_push_dirty = false;
 
 R_Program renderer_create_program(const char *vert_path, const char *frag_path) {
     if (g_vk.pipeline_count >= MAX_PIPELINES) return R_INVALID_HANDLE;
-    
+
     VkShaderModule vert = load_shader_module(vert_path);
     VkShaderModule frag = load_shader_module(frag_path);
     if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE) {
@@ -1307,45 +1398,19 @@ R_Program renderer_create_program(const char *vert_path, const char *frag_path) 
         if (frag) vkDestroyShaderModule(g_vk.device, frag, NULL);
         return R_INVALID_HANDLE;
     }
-    
-    /* Detect shader type from filename */
-    VertexFormat vformat = VERTEX_FORMAT_TERRAIN;
-    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    bool depth_test = true;
-    bool depth_write = true;
-    VkCullModeFlagBits cull = VK_CULL_MODE_BACK_BIT;
-    
-    if (strstr(vert_path, "skybox")) {
-        vformat = VERTEX_FORMAT_SKYBOX;
-        depth_write = false; /* Skybox doesn't write depth */
-    } else if (strstr(vert_path, "outline")) {
-        vformat = VERTEX_FORMAT_OUTLINE;
-        topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        depth_write = false; /* Outline doesn't write depth */
-        cull = VK_CULL_MODE_NONE;
-    } else if (strstr(vert_path, "hud") || strstr(vert_path, "ui")) {
-        vformat = VERTEX_FORMAT_HUD;
-        depth_test = false;
-        depth_write = false;
-        cull = VK_CULL_MODE_NONE;
-    }
 
-    /* Enable blending for HUD/UI (alpha blending) */
-    VkBool32 blend_enable = VK_FALSE;
-    VkBlendFactor blend_src = VK_BLEND_FACTOR_SRC_ALPHA;
-    VkBlendFactor blend_dst = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    if (vformat == VERTEX_FORMAT_HUD) {
-        blend_enable = VK_TRUE;
-    }
-    
+    /* Get pipeline configuration based on shader type */
+    PipelineConfig cfg;
+    get_pipeline_config(vert_path, frag_path, &cfg);
+
     uint32_t idx = g_vk.pipeline_count++;
     Pipeline *pipe = &g_vk.pipelines[idx];
-    
+
     pipe->vert_module = vert;
     pipe->frag_module = frag;
-    
-    /* Only terrain/basic shader needs texture descriptor */
-    if (vformat == VERTEX_FORMAT_TERRAIN) {
+
+    /* Create descriptor layout if shader needs textures */
+    if (cfg.has_texture) {
         pipe->desc_set_layout = create_texture_descriptor_layout();
     } else {
         /* Create empty descriptor layout for shaders without textures */
@@ -1355,15 +1420,12 @@ R_Program renderer_create_program(const char *vert_path, const char *frag_path) 
         layout_info.pBindings = NULL;
         vkCreateDescriptorSetLayout(g_vk.device, &layout_info, NULL, &pipe->desc_set_layout);
     }
-    
+
     pipe->layout = create_pipeline_layout(pipe->desc_set_layout);
-    pipe->pipeline = create_graphics_pipeline(vert, frag, pipe->layout,
-                                               topology,
-                                               depth_test, depth_write, cull,
-                                               vformat, blend_enable, blend_src, blend_dst);
-    
-    /* Allocate descriptor set for texture (only for terrain) */
-    if (vformat == VERTEX_FORMAT_TERRAIN) {
+    pipe->pipeline = create_graphics_pipeline(vert, frag, pipe->layout, &cfg);
+
+    /* Allocate descriptor set for texture if needed */
+    if (cfg.has_texture) {
         VkDescriptorSetAllocateInfo alloc_info = {0};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc_info.descriptorPool = g_vk.desc_pool;
@@ -1373,7 +1435,7 @@ R_Program renderer_create_program(const char *vert_path, const char *frag_path) 
     } else {
         pipe->desc_set = VK_NULL_HANDLE;
     }
-    
+
     return idx;
 }
 
