@@ -20,11 +20,17 @@ void mesh_init(Mesh *mesh) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+#define EPSILON 0.002f  // Larger offset to prevent z-fighting gaps
+
 static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, float b, float nx, float ny, float nz, float ao, float u, float v) {
     if (mesh->vertex_count >= mesh->vertex_capacity) {
         mesh->vertex_capacity *= 2;
         mesh->vertices = realloc(mesh->vertices, sizeof(Vertex) * mesh->vertex_capacity);
     }
+    // Add tiny offset to prevent seam gaps (z-fighting)
+    x += (nx != 0.0f) ? nx * EPSILON : 0.0f;
+    y += (ny != 0.0f) ? ny * EPSILON : 0.0f;
+    z += (nz != 0.0f) ? nz * EPSILON : 0.0f;
     mesh->vertices[mesh->vertex_count++] = (Vertex){
         .x = x, .y = y, .z = z, .w = 1.0f,
         .r = r, .g = g, .b = b, .a = 1.0f,
@@ -38,12 +44,14 @@ static Color get_block_color(BlockType type) { return (Color){1.0f, 1.0f, 1.0f};
 
 typedef struct { float u_off, v_off, w, h; } UVRect;
 static UVRect get_uv_rect(BlockType type) {
-    float s = 0.5f;
+    float s = 0.0625f;  // 1/16 = 0.0625
+    float padding = 0.006f;  // ~2 pixel padding to prevent seams
+    float uv_size = s - (padding * 2);
     switch (type) {
-        case BLOCK_GRASS: return (UVRect){0.0f, 0.0f, s, s};
-        case BLOCK_DIRT:  return (UVRect){s, 0.0f, s, s};
-        case BLOCK_STONE: return (UVRect){0.0f, s, s, s};
-        default:          return (UVRect){s, s, s, s};
+        case BLOCK_GRASS: return (UVRect){padding, padding, uv_size, uv_size};
+        case BLOCK_DIRT:  return (UVRect){s + padding, padding, uv_size, uv_size};
+        case BLOCK_STONE: return (UVRect){padding, s + padding, uv_size, uv_size};
+        default:          return (UVRect){s + padding, s + padding, uv_size, uv_size};
     }
 }
 
