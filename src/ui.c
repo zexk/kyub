@@ -35,6 +35,7 @@ void ui_init(UI *ui, int width, int height) {
     (void)width;
     (void)height;
     ui->initialized = false;
+    ui->selected_block = BLOCK_STONE;
     ui->visible = true;
 
     ui->shader = shader_create_program("shaders/ui.vert", "shaders/ui.frag");
@@ -125,7 +126,6 @@ void ui_set_stats(UI *ui, float fps, int chunk_count, vec3 pos, vec3 dir, float 
     ui->player_dir = dir;
     ui->player_yaw = yaw;
     ui->player_pitch = pitch;
-    ui->render_distance = 2;
 }
 
 void ui_render(UI *ui, int width, int height) {
@@ -169,6 +169,13 @@ void ui_render(UI *ui, int width, int height) {
         nk_layout_row_dynamic(&ui->ctx, 20, 2);
         nk_label(&ui->ctx, "Render Dist:", NK_TEXT_LEFT);
         nk_slider_int(&ui->ctx, 1, &ui->render_distance, 8, 1);
+
+        /* Block palette */
+        nk_layout_row_dynamic(&ui->ctx, 30, 4);
+        if (nk_button_label(&ui->ctx, "Air"))   ui->selected_block = BLOCK_AIR;
+        if (nk_button_label(&ui->ctx, "Dirt"))  ui->selected_block = BLOCK_DIRT;
+        if (nk_button_label(&ui->ctx, "Grass")) ui->selected_block = BLOCK_GRASS;
+        if (nk_button_label(&ui->ctx, "Stone")) ui->selected_block = BLOCK_STONE;
     }
     nk_end(&ui->ctx);
 

@@ -8,6 +8,16 @@ void mesh_init(Mesh *mesh) {
     mesh->vertices = malloc(sizeof(Vertex) * mesh->vertex_capacity);
     mesh->vao = 0;
     mesh->vbo = 0;
+    mesh->ebo = 0;
+    mesh->indirect_draw_buffer = 0;
+    mesh->atomic_counter_buffer = 0;
+    // Allocate a large VBO for GPU generation (max vertices heuristic)
+    // 16MB is safe for 16^3 checkerboard chunk (max faces).
+    size_t vbo_size = 16 * 1024 * 1024;
+    if (mesh->vbo == 0) glGenBuffers(1, &mesh->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glBufferData(GL_ARRAY_BUFFER, vbo_size, NULL, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, float b, float nx, float ny, float nz, float ao, float u, float v) {
@@ -68,6 +78,34 @@ static void add_face(Mesh *mesh, Chunk *chunk, int x, int y, int z, int face, Bl
     add_vertex(mesh, p[3][0], p[3][1], p[3][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off, uv.v_off + uv.h);
 }
 
+void mesh_generate_gpu(Mesh *mesh, GLuint compute_program, GLuint voxel_tex, int chunk_x, int chunk_z) {
+    glUseProgram(compute_program);
+
+    glBindImageTexture(0, voxel_tex, 0, GL_TRUE, 0, GL_READ_ONLY, GL_R8UI);
+
+    // Bind vertex buffer as SSBO
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh->vbo);
+
+    // Bind atomic counter
+    glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, mesh->atomic_counter_buffer);
+    GLuint zero = 0;
+    glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), &zero);
+
+    // Set uniforms
+    glUniform2i(glGetUniformLocation(compute_program, "uChunkPos"), chunk_x, chunk_z);
+
+    // Dispatch compute shader
+    // CHUNK_SIZE = 16. Local size in shader is 4x4x4.
+    // So we need 16/4 = 4 groups in each dimension.
+    glDispatchCompute(4, 4, 4);
+
+    // Memory barrier to ensure writing to VBO and atomic counter is finished
+    glMemoryBarrier(0xFFFFFFFF); // GL_ALL_BARRIER_BITS
+
+    // Update the indirect draw buffer
+    mesh_update_draw_count(mesh);
+}
+
 void mesh_generate_greedy(Mesh *mesh, Chunk *chunk) {
     mesh->vertex_count = 0;
     for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -85,6 +123,7 @@ void mesh_generate_greedy(Mesh *mesh, Chunk *chunk) {
         }
     }
 }
+
 void mesh_upload(Mesh *mesh) {
     if (mesh->vao == 0) glGenVertexArrays(1, &mesh->vao);
     if (mesh->vbo == 0) glGenBuffers(1, &mesh->vbo);
@@ -93,19 +132,70 @@ void mesh_upload(Mesh *mesh) {
     glBufferData(GL_ARRAY_BUFFER, mesh->vertex_count * sizeof(Vertex), mesh->vertices, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(4 * sizeof(float)));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(6 * sizeof(float)));
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(8 * sizeof(float)));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(9 * sizeof(float)));
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(10 * sizeof(float)));
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(12 * sizeof(float)));
     glEnableVertexAttribArray(4);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(mesh->vao);  // Keep VAO bound instead of 0
+    glBindVertexArray(mesh->vao);
 }
+
+void mesh_prepare_gpu(Mesh *mesh) {
+    // Ensure VAO exists
+    if (mesh->vao == 0) glGenVertexArrays(1, &mesh->vao);
+    glBindVertexArray(mesh->vao);
+    // VBO should already be allocated; just bind it
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    // Set attribute pointers (same layout as mesh_upload)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(4 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(12 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // Allocate indirect draw buffer (count, instanceCount, first, baseInstance)
+    glGenBuffers(1, &mesh->indirect_draw_buffer);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh->indirect_draw_buffer);
+    GLuint zero_cmd[4] = {0, 1, 0, 0};
+    glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(zero_cmd), zero_cmd, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+
+    // Allocate atomic counter buffer
+    glGenBuffers(1, &mesh->atomic_counter_buffer);
+    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, mesh->atomic_counter_buffer);
+    GLuint zero = 0;
+    glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), &zero, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+}
+
+void mesh_update_draw_count(Mesh *mesh) {
+    // Read the atomic counter (number of vertices generated)
+    GLuint count = 0;
+    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, mesh->atomic_counter_buffer);
+    glGetBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), &count);
+    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+
+    // Update indirect draw buffer: count, instanceCount=1, first=0, baseInstance=0
+    GLuint cmd[4] = { count, 1, 0, 0 };
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh->indirect_draw_buffer);
+    glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+}
+
 void mesh_free(Mesh *mesh) {
     free(mesh->vertices);
-    if (mesh->vbo != 0) glDeleteBuffers(1, &mesh->vbo);
+    if (mesh->indirect_draw_buffer != 0) glDeleteBuffers(1, &mesh->indirect_draw_buffer);
+    if (mesh->atomic_counter_buffer != 0) glDeleteBuffers(1, &mesh->atomic_counter_buffer);
     if (mesh->vao != 0) glDeleteVertexArrays(1, &mesh->vao);
 }

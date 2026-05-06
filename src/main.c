@@ -92,6 +92,7 @@ int main(void) {
     XGrabPointer(display, window, True, PointerMotionMask, GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
 
     UI ui;
+    ui.render_distance = world.render_distance;
     ui_init(&ui, width, height);
 
     double last_time = get_time_s();
@@ -182,7 +183,7 @@ int main(void) {
                 BlockType b = world_get_block(&world, bx, by, bz);
                 if (b != BLOCK_AIR) {
                     if (prev_x >= 0 && world_get_block(&world, prev_x, prev_y, prev_z) == BLOCK_AIR)
-                        world_set_block(&world, prev_x, prev_y, prev_z, BLOCK_STONE);
+                        world_set_block(&world, prev_x, prev_y, prev_z, ui.selected_block);
                     break;
                 }
                 prev_x = bx; prev_y = by; prev_z = bz;
@@ -213,7 +214,13 @@ int main(void) {
         for (int i = 0; i < world.capacity; i++) {
             if (world.chunks[i].active && frustum_intersects_box(&frustum, world.chunks[i].chunk->min, world.chunks[i].chunk->max)) {
                 glBindVertexArray(world.chunks[i].mesh->vao);
+#ifdef ENABLE_COMPUTE
+                glBindBuffer(GL_DRAW_INDIRECT_BUFFER, world.chunks[i].mesh->indirect_draw_buffer);
+                glDrawArraysIndirect(GL_TRIANGLES, 0);
+                glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+#else
                 glDrawArrays(GL_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
+#endif
             }
         }
 

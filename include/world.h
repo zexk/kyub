@@ -9,6 +9,7 @@ typedef struct {
     Chunk *chunk;
     Mesh *mesh;
     bool active;
+    GLuint voxel_tex;
 } LoadedChunk;
 
 typedef struct {
@@ -16,6 +17,7 @@ typedef struct {
     int capacity;
     int count;
     int render_distance;
+    GLuint mesh_compute_program;
 } World;
 
 void world_init(World *world, int render_distance);

@@ -11,11 +11,13 @@
 #include "nuklear.h"
 
 #include "math3d.h"
+#include "voxel.h"
 
 #define UI_MAX_VERTEX_BUFFER 65536
 #define UI_MAX_ELEMENT_BUFFER 65536
 
 typedef struct {
+    BlockType selected_block;
     struct nk_context ctx;
     struct nk_font_atlas atlas;
     struct nk_buffer cmds;

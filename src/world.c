@@ -1,4 +1,5 @@
 #include "world.h"
+#include "shader.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -11,6 +12,9 @@ void world_init(World *world, int render_distance) {
     world->capacity = (2 * MAX_RENDER_DISTANCE + 1) * (2 * MAX_RENDER_DISTANCE + 1);
     world->chunks = calloc(world->capacity, sizeof(LoadedChunk));
     world->count = 0;
+#ifdef ENABLE_COMPUTE
+    world->mesh_compute_program = shader_create_compute_program("shaders/mesh.comp");
+#endif
 }
 
 static bool chunk_is_loaded(World *world, int x, int z) {
@@ -28,8 +32,14 @@ static void load_chunk(World *world, int x, int z) {
             chunk_init(world->chunks[i].chunk, x, z);
             world->chunks[i].mesh = malloc(sizeof(Mesh));
             mesh_init(world->chunks[i].mesh);
+            voxel_upload_texture(&world->chunks[i].voxel_tex, world->chunks[i].chunk);
+#ifdef ENABLE_COMPUTE
+            mesh_prepare_gpu(world->chunks[i].mesh);
+            mesh_generate_gpu(world->chunks[i].mesh, world->mesh_compute_program, world->chunks[i].voxel_tex, x, z);
+#else
             mesh_generate_greedy(world->chunks[i].mesh, world->chunks[i].chunk);
             mesh_upload(world->chunks[i].mesh);
+#endif
             world->chunks[i].active = true;
             world->count++;
             return;
@@ -42,6 +52,7 @@ static void unload_chunk(World *world, int index) {
     mesh_free(world->chunks[index].mesh);
     free(world->chunks[index].mesh);
     free(world->chunks[index].chunk);
+    if (world->chunks[index].voxel_tex) glDeleteTextures(1, &world->chunks[index].voxel_tex);
     world->chunks[index].active = false;
     world->count--;
 }
@@ -90,10 +101,8 @@ static LoadedChunk* find_chunk(World *world, int cx, int cz) {
 
 BlockType world_get_block(World *world, int x, int y, int z) {
     if (y < 0 || y >= CHUNK_SIZE) return BLOCK_AIR;
-    int cx = x / CHUNK_SIZE;
-    int cz = z / CHUNK_SIZE;
-    if (x < 0) cx--;
-    if (z < 0) cz--;
+    int cx = (int)floorf((float)x / CHUNK_SIZE);
+    int cz = (int)floorf((float)z / CHUNK_SIZE);
     LoadedChunk *lc = find_chunk(world, cx, cz);
     if (!lc) return BLOCK_AIR;
     int lx = x - cx * CHUNK_SIZE;
@@ -103,15 +112,21 @@ BlockType world_get_block(World *world, int x, int y, int z) {
 
 void world_set_block(World *world, int x, int y, int z, BlockType type) {
     if (y < 0 || y >= CHUNK_SIZE) return;
-    int cx = x / CHUNK_SIZE;
-    int cz = z / CHUNK_SIZE;
-    if (x < 0) cx--;
-    if (z < 0) cz--;
+    int cx = (int)floorf((float)x / CHUNK_SIZE);
+    int cz = (int)floorf((float)z / CHUNK_SIZE);
     LoadedChunk *lc = find_chunk(world, cx, cz);
     if (!lc) return;
     int lx = x - cx * CHUNK_SIZE;
     int lz = z - cz * CHUNK_SIZE;
     lc->chunk->blocks[lx][y][lz] = type;
+#ifdef ENABLE_COMPUTE
+    // Update voxel texture on GPU. Swap X and Z offsets for GL layout.
+    glBindTexture(GL_TEXTURE_3D, lc->voxel_tex);
+    glTexSubImage3D_ext(GL_TEXTURE_3D, 0, lz, y, lx, 1, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &lc->chunk->blocks[lx][y][lz]);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    mesh_generate_gpu(lc->mesh, world->mesh_compute_program, lc->voxel_tex, cx, cz);
+#else
     mesh_generate_greedy(lc->mesh, lc->chunk);
     mesh_upload(lc->mesh);
+#endif
 }

@@ -16,21 +16,31 @@ PFNGLDELETESHADERPROC glDeleteShader = NULL;
 PFNGLDELETEPROGRAMPROC glDeleteProgram = NULL;
 PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = NULL;
 PFNGLUNIFORM1IPROC glUniform1i = NULL;
+PFNGLUNIFORM2IPROC glUniform2i = NULL;
 PFNGLUNIFORM1FPROC glUniform1f = NULL;
 PFNGLUNIFORM2FPROC glUniform2f = NULL;
 PFNGLUNIFORM3FPROC glUniform3f = NULL;
+PFNGLTEXIMAGE3DPROC glTexImage3D_ext = NULL;
+PFNGLTEXSUBIMAGE3DPROC glTexSubImage3D_ext = NULL;
 PFNGLGENERATEMIPMAPPROC glGenerateMipmap = NULL;
 PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation = NULL;
+PFNGLBINDIMAGETEXTUREPROC glBindImageTexture = NULL;
 
 PFNGLGENBUFFERSPROC glGenBuffers = NULL;
 PFNGLBINDBUFFERPROC glBindBuffer = NULL;
 PFNGLBUFFERDATAPROC glBufferData = NULL;
+PFNGLBUFFERSUBDATAPROC glBufferSubData = NULL;
+PFNGLGETBUFFERSUBDATAPROC glGetBufferSubData = NULL;
+PFNGLBINDBUFFERBASEPROC glBindBufferBase = NULL;
 PFNGLDELETEBUFFERSPROC glDeleteBuffers = NULL;
 PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = NULL;
 PFNGLBINDVERTEXARRAYPROC glBindVertexArray = NULL;
 PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays = NULL;
 PFNGLMAPBUFFERPROC glMapBuffer = NULL;
 PFNGLUNMAPBUFFERPROC glUnmapBuffer = NULL;
+PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer = NULL;
+PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = NULL;
+
 PFNGLISVERTEXARRAYPROC glIsVertexArray = NULL;
 PFNGLISBUFFERPROC glIsBuffer = NULL;
 PFNGLCREATEVERTEXARRAYSPROC glCreateVertexArrays = NULL;
@@ -41,8 +51,10 @@ PFNGLVERTEXARRAYATTRIBBINDINGPROC glVertexArrayAttribBinding = NULL;
 PFNGLENABLEVERTEXARRAYATTRIBPROC glEnableVertexArrayAttrib = NULL;
 PFNGLNAMEDBUFFERDATAPROC glNamedBufferData = NULL;
 PFNGLVERTEXARRAYELEMENTBUFFERPROC glVertexArrayElementBuffer = NULL;
-PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer = NULL;
-PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = NULL;
+
+PFNGLDISPATCHCOMPUTEPROC glDispatchCompute = NULL;
+PFNGLMEMORYBARRIERPROC glMemoryBarrier = NULL;
+PFNGLDRAWARRAYSINDIRECTPROC glDrawArraysIndirect = NULL;
 
 static void* get_proc(const char* name) {
     void* p = (void*)glXGetProcAddress((const GLubyte*)name);
@@ -68,19 +80,22 @@ bool gl_ext_init(void) {
     glDeleteProgram = (PFNGLDELETEPROGRAMPROC)get_proc("glDeleteProgram");
     glUniformMatrix4fv = (PFNGLUNIFORMMATRIX4FVPROC)get_proc("glUniformMatrix4fv");
     glUniform1i = (PFNGLUNIFORM1IPROC)get_proc("glUniform1i");
+    glUniform2i = (PFNGLUNIFORM2IPROC)get_proc("glUniform2i");
     glUniform1f = (PFNGLUNIFORM1FPROC)get_proc("glUniform1f");
     glUniform2f = (PFNGLUNIFORM2FPROC)get_proc("glUniform2f");
     glUniform3f = (PFNGLUNIFORM3FPROC)get_proc("glUniform3f");
+    glTexImage3D_ext = (PFNGLTEXIMAGE3DPROC)get_proc("glTexImage3D");
+    glTexSubImage3D_ext = (PFNGLTEXSUBIMAGE3DPROC)get_proc("glTexSubImage3D");
     glGenerateMipmap = (PFNGLGENERATEMIPMAPPROC)get_proc("glGenerateMipmap");
     glGetUniformLocation = (PFNGLGETUNIFORMLOCATIONPROC)get_proc("glGetUniformLocation");
+    glBindImageTexture = (PFNGLBINDIMAGETEXTUREPROC)get_proc("glBindImageTexture");
 
     glGenBuffers = (PFNGLGENBUFFERSPROC)get_proc("glGenBuffers");
     glBindBuffer = (PFNGLBINDBUFFERPROC)get_proc("glBindBuffer");
     glBufferData = (PFNGLBUFFERDATAPROC)get_proc("glBufferData");
-    glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)get_proc("glDeleteBuffers");
-    glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)get_proc("glGenVertexArrays");
-    glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)get_proc("glBindVertexArray");
-    glDeleteVertexArrays = (PFNGLDELETEVERTEXARRAYSPROC)get_proc("glDeleteVertexArrays");
+    glBufferSubData = (PFNGLBUFFERSUBDATAPROC)get_proc("glBufferSubData");
+    glGetBufferSubData = (PFNGLGETBUFFERSUBDATAPROC)get_proc("glGetBufferSubData");
+    glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)get_proc("glBindBufferBase");
     glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)get_proc("glDeleteBuffers");
     glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)get_proc("glGenVertexArrays");
     glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)get_proc("glBindVertexArray");
@@ -89,6 +104,7 @@ bool gl_ext_init(void) {
     glUnmapBuffer = (PFNGLUNMAPBUFFERPROC)get_proc("glUnmapBuffer");
     glVertexAttribPointer = (PFNGLVERTEXATTRIBPOINTERPROC)get_proc("glVertexAttribPointer");
     glEnableVertexAttribArray = (PFNGLENABLEVERTEXATTRIBARRAYPROC)get_proc("glEnableVertexAttribArray");
+
     glIsVertexArray = (PFNGLISVERTEXARRAYPROC)get_proc("glIsVertexArray");
     glIsBuffer = (PFNGLISBUFFERPROC)get_proc("glIsBuffer");
     glCreateVertexArrays = (PFNGLCREATEVERTEXARRAYSPROC)get_proc("glCreateVertexArrays");
@@ -100,9 +116,14 @@ bool gl_ext_init(void) {
     glNamedBufferData = (PFNGLNAMEDBUFFERDATAPROC)get_proc("glNamedBufferData");
     glVertexArrayElementBuffer = (PFNGLVERTEXARRAYELEMENTBUFFERPROC)get_proc("glVertexArrayElementBuffer");
 
+    glDispatchCompute = (PFNGLDISPATCHCOMPUTEPROC)get_proc("glDispatchCompute");
+    glMemoryBarrier = (PFNGLMEMORYBARRIERPROC)get_proc("glMemoryBarrier");
+    glDrawArraysIndirect = (PFNGLDRAWARRAYSINDIRECTPROC)get_proc("glDrawArraysIndirect");
+
     if (!glCreateShader || !glCreateProgram || !glUseProgram) {
         return false;
     }
 
     return true;
 }
+

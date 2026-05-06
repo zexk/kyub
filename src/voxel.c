@@ -5,6 +5,22 @@
 #include <math.h>
 #include <stdlib.h>
 
+void voxel_upload_texture(GLuint *tex, const Chunk *chunk) {
+    glGenTextures(1, tex);
+    glBindTexture(GL_TEXTURE_3D, *tex);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexImage3D_ext(GL_TEXTURE_3D, 0, GL_R8UI,
+                 CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE,
+                 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE,
+                 chunk->blocks);
+    glBindTexture(GL_TEXTURE_3D, 0);
+}
+
+
 void chunk_init(Chunk *chunk, int x, int z) {
     chunk->x = x;
     chunk->z = z;
@@ -30,3 +46,4 @@ void chunk_init(Chunk *chunk, int x, int z) {
         }
     }
 }
+
