@@ -68,6 +68,39 @@ int main(void) {
     unsigned int hud_program = shader_create_program("shaders/hud.vert", "shaders/hud.frag");
     if (!hud_program) return 1;
 
+    unsigned int skybox_program = shader_create_program("shaders/skybox.vert", "shaders/skybox.frag");
+    if (!skybox_program) return 1;
+
+GLuint skybox_vao, skybox_vbo;
+    glGenVertexArrays(1, &skybox_vao);
+    glGenBuffers(1, &skybox_vbo);
+    float skybox_cube[] = {
+        // Front face (-Z)
+        -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
+        // Back face (+Z)
+         1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
+        // Left face (-X)
+        -1.0f, -1.0f, -1.0f,  -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,  -1.0f,  1.0f,  1.0f,  -1.0f,  1.0f, -1.0f,
+        // Right face (+X)
+         1.0f, -1.0f,  1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
+        // Bottom face (-Y)
+        -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,
+        // Top face (+Y)
+        -1.0f,  1.0f, -1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
+    };
+    glBindVertexArray(skybox_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, skybox_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skybox_cube), skybox_cube, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
     GLuint hud_vao, hud_vbo, test_vbo;
     glGenVertexArrays(1, &hud_vao);
     glGenBuffers(1, &hud_vbo);
@@ -265,6 +298,20 @@ int main(void) {
 #endif
             }
         }
+
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_LEQUAL);
+        glDisable(GL_CULL_FACE);
+        glUseProgram(skybox_program);
+        mat4 skybox_projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
+        glUniformMatrix4fv(glGetUniformLocation(skybox_program, "projection"), 1, GL_FALSE, skybox_projection.m);
+        glUniformMatrix4fv(glGetUniformLocation(skybox_program, "view"), 1, GL_FALSE, view.m);
+        glBindVertexArray(skybox_vao);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+        glEnable(GL_CULL_FACE);
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE);
 
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND);
