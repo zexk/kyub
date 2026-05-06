@@ -1,4 +1,5 @@
 #include "gl_ext.h"
+#include "logger.h"
 #include <stdio.h>
 
 PFNGLCREATESHADERPROC glCreateShader = NULL;
@@ -59,7 +60,7 @@ PFNGLDRAWARRAYSINDIRECTPROC glDrawArraysIndirect = NULL;
 static void* get_proc(const char* name) {
     void* p = (void*)glXGetProcAddress((const GLubyte*)name);
     if (!p) {
-        fprintf(stderr, "Failed to load GL extension: %s\n", name);
+        LOG_WARN(CAT_GL, "Failed to load GL extension: %s", name);
     }
     return p;
 }

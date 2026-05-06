@@ -1,6 +1,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "texture.h"
 #include "gl_ext.h"
+#include "logger.h"
 #include <stb/stb_image.h>
 #include <stdio.h>
 
@@ -9,7 +10,7 @@ GLuint texture_load(const char *path) {
     int width, height, channels;
     unsigned char *data = stbi_load(path, &width, &height, &channels, 0);
     if (!data) {
-        fprintf(stderr, "Failed to load texture: %s\n", path);
+        LOG_ERROR(CAT_GL, "Failed to load texture: %s", path);
         return 0;
     }
 
@@ -27,5 +28,6 @@ GLuint texture_load(const char *path) {
     glGenerateMipmap(GL_TEXTURE_2D);
 
     stbi_image_free(data);
+    LOG_INFO(CAT_GL, "Loaded texture: %s (%dx%d)", path, width, height);
     return texture;
 }

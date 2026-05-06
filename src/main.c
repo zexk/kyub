@@ -13,6 +13,7 @@
 #include "ui.h"
 #include "platform.h"
 #include "platform_x11.h"
+#include "logger.h"
 #include <GL/glx.h>
 #include <GL/glext.h>
 #include <time.h>
@@ -31,6 +32,11 @@ static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
 
 int main(void) {
     if (platform_init(800, 600) != 0) return 1;
+
+#ifdef ENABLE_LOGGER
+    logger_init("kyub.log");
+    logger_set_level(LOG_DEBUG);
+#endif
 
     Display *display = platform_x11_get_display();
     Window window = platform_x11_get_window();
@@ -302,6 +308,11 @@ int main(void) {
     glDeleteProgram(shader_program);
     glXMakeCurrent(display, None, NULL);
     glXDestroyContext(display, gl_context);
+
+#ifdef ENABLE_LOGGER
+    logger_shutdown();
+#endif
+
     platform_shutdown();
     return 0;
 }

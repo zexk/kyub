@@ -1,5 +1,6 @@
 #include "world.h"
 #include "shader.h"
+#include "logger.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -42,6 +43,7 @@ static void load_chunk(World *world, int x, int z) {
 #endif
             world->chunks[i].active = true;
             world->count++;
+            LOG_DEBUG(CAT_WORLD, "Loaded chunk %d,%d (slot %d)", x, z, i);
             return;
         }
     }
@@ -49,12 +51,15 @@ static void load_chunk(World *world, int x, int z) {
 
 static void unload_chunk(World *world, int index) {
     if (!world->chunks[index].active) return;
+    int cx = world->chunks[index].chunk->x;
+    int cz = world->chunks[index].chunk->z;
     mesh_free(world->chunks[index].mesh);
     free(world->chunks[index].mesh);
     free(world->chunks[index].chunk);
     if (world->chunks[index].voxel_tex) glDeleteTextures(1, &world->chunks[index].voxel_tex);
     world->chunks[index].active = false;
     world->count--;
+    LOG_DEBUG(CAT_WORLD, "Unloaded chunk %d,%d", cx, cz);
 }
 
 void world_update(World *world, vec3 camera_pos) {

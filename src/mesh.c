@@ -25,7 +25,12 @@ static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, 
         mesh->vertex_capacity *= 2;
         mesh->vertices = realloc(mesh->vertices, sizeof(Vertex) * mesh->vertex_capacity);
     }
-    mesh->vertices[mesh->vertex_count++] = (Vertex){x, y, z, r, g, b, nx, ny, nz, ao, u, v};
+    mesh->vertices[mesh->vertex_count++] = (Vertex){
+        .x = x, .y = y, .z = z, .w = 1.0f,
+        .r = r, .g = g, .b = b, .a = 1.0f,
+        .nx = nx, .ny = ny, .nz = nz, .ao = ao,
+        .u = u, .v = v, .p1 = 0, .p2 = 0
+    };
 }
 
 typedef struct { float r, g, b; } Color;

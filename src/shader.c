@@ -1,11 +1,12 @@
 #include "shader.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 static char* read_file(const char* path) {
     FILE* file = fopen(path, "rb");
     if (!file) {
-        fprintf(stderr, "Failed to open file: %s\n", path);
+        LOG_ERROR(CAT_GL, "Failed to open shader file: %s", path);
         return NULL;
     }
 
@@ -15,13 +16,13 @@ static char* read_file(const char* path) {
 
     char* buffer = malloc(length + 1);
     if (!buffer) {
-        fprintf(stderr, "Failed to allocate memory for file: %s\n", path);
+        LOG_ERROR(CAT_GL, "Failed to allocate memory for shader file: %s", path);
         fclose(file);
         return NULL;
     }
 
     if (fread(buffer, 1, length, file) != (size_t)length) {
-        fprintf(stderr, "Failed to read file: %s\n", path);
+        LOG_ERROR(CAT_GL, "Failed to read shader file: %s", path);
         free(buffer);
         fclose(file);
         return NULL;
@@ -46,7 +47,7 @@ static unsigned int compile_shader(unsigned int type, const char* source) {
         if (type == GL_VERTEX_SHADER) type_str = "VERTEX";
         else if (type == GL_FRAGMENT_SHADER) type_str = "FRAGMENT";
         else if (type == GL_COMPUTE_SHADER) type_str = "COMPUTE";
-        fprintf(stderr, "Shader compilation error (%s):\n%s\n", type_str, info_log);
+        LOG_ERROR(CAT_GL, "Shader compilation error (%s): %s", type_str, info_log);
         return 0;
     }
 
@@ -83,13 +84,14 @@ unsigned int shader_create_program(const char* vert_path, const char* frag_path)
     if (!success) {
         char info_log[512];
         glGetProgramInfoLog(program, 512, NULL, info_log);
-        fprintf(stderr, "Shader program linking error:\n%s\n", info_log);
+        LOG_ERROR(CAT_GL, "Shader program linking error: %s", info_log);
         return 0;
     }
 
     glDeleteShader(vert_shader);
     glDeleteShader(frag_shader);
 
+    LOG_INFO(CAT_GL, "Created shader program: %s + %s", vert_path, frag_path);
     return program;
 }
 

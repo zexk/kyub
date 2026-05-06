@@ -2,6 +2,7 @@
 #include "input.h"
 #include "gl_ext.h"
 #include "shader.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -41,9 +42,11 @@ void ui_init(UI *ui, int width, int height) {
 
     ui->shader = shader_create_program("shaders/ui.vert", "shaders/ui.frag");
     if (!ui->shader) {
-        fprintf(stderr, "Failed to create UI shader\n");
+        LOG_ERROR(CAT_UI, "Failed to create UI shader");
         return;
     }
+
+    LOG_INFO(CAT_UI, "UI initialized successfully");
 
     if (glCreateVertexArrays) {
         glCreateVertexArrays(1, &ui->vao);
