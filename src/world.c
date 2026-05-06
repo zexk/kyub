@@ -69,9 +69,10 @@ void world_update(World *world, vec3 camera_pos) {
     if (camera_pos.x < 0) cx--;
     if (camera_pos.z < 0) cz--;
 
-    // Load new chunks
-    for (int x = cx - world->render_distance; x <= cx + world->render_distance; x++) {
-        for (int z = cz - world->render_distance; z <= cz + world->render_distance; z++) {
+    // Load new chunks (+1 buffer for interaction range at chunk boundaries)
+    int load_dist = world->render_distance + 1;
+    for (int x = cx - load_dist; x <= cx + load_dist; x++) {
+        for (int z = cz - load_dist; z <= cz + load_dist; z++) {
             if (!chunk_is_loaded(world, x, z)) {
                 load_chunk(world, x, z);
             }
@@ -128,7 +129,10 @@ BlockType world_get_block(World *world, int x, int y, int z) {
     int cx = (int)floorf((float)x / CHUNK_SIZE);
     int cz = (int)floorf((float)z / CHUNK_SIZE);
     LoadedChunk *lc = find_chunk(world, cx, cz);
-    if (!lc) return BLOCK_AIR;
+    if (!lc) {
+        LOG_WARN(CAT_WORLD, "get_block: chunk %d,%d not loaded for block %d,%d,%d", cx, cz, x, y, z);
+        return BLOCK_AIR;
+    }
     int lx = x - cx * CHUNK_SIZE;
     int lz = z - cz * CHUNK_SIZE;
     return lc->chunk->blocks[lx][y][lz];
@@ -149,7 +153,10 @@ void world_set_block(World *world, int x, int y, int z, BlockType type) {
             lc = find_chunk(world, cx, cz);
         }
     }
-    if (!lc) return;
+    if (!lc) {
+        LOG_WARN(CAT_WORLD, "set_block: chunk %d,%d not loaded for block %d,%d,%d", cx, cz, x, y, z);
+        return;
+    }
     int lx = x - cx * CHUNK_SIZE;
     int lz = z - cz * CHUNK_SIZE;
     lc->chunk->blocks[lx][y][lz] = type;

@@ -60,6 +60,15 @@ static bool is_transparent(Chunk *chunk, int x, int y, int z) {
     return chunk->blocks[x][y][z] == BLOCK_AIR;
 }
 
+static float vertex_ao(bool side1, bool side2, bool corner) {
+    if (side1 && side2) return 0.5f;
+    int count = (side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0);
+    if (count == 0) return 1.0f;
+    if (count == 1) return 0.85f;
+    if (count == 2) return 0.7f;
+    return 0.5f;
+}
+
 static void add_face(Mesh *mesh, Chunk *chunk, int x, int y, int z, int face, BlockType type) {
     float ox = (float)(x + chunk->x * CHUNK_SIZE);
     float oy = (float)y;
@@ -83,12 +92,45 @@ static void add_face(Mesh *mesh, Chunk *chunk, int x, int y, int z, int face, Bl
         ny = -1; p[0][0]=ox; p[0][1]=oy; p[0][2]=oz; p[1][0]=ox+1; p[1][1]=oy; p[1][2]=oz; p[2][0]=ox+1; p[2][1]=oy; p[2][2]=oz+1; p[3][0]=ox; p[3][1]=oy; p[3][2]=oz+1;
     }
 
-    add_vertex(mesh, p[0][0], p[0][1], p[0][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off, uv.v_off);
-    add_vertex(mesh, p[1][0], p[1][1], p[1][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off + uv.w, uv.v_off);
-    add_vertex(mesh, p[2][0], p[2][1], p[2][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off + uv.w, uv.v_off + uv.h);
-    add_vertex(mesh, p[0][0], p[0][1], p[0][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off, uv.v_off);
-    add_vertex(mesh, p[2][0], p[2][1], p[2][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off + uv.w, uv.v_off + uv.h);
-    add_vertex(mesh, p[3][0], p[3][1], p[3][2], c.r, c.g, c.b, nx, ny, nz, 1.0f, uv.u_off, uv.v_off + uv.h);
+    float ao[4];
+    if (face == 0) { // Front (+Z)
+        ao[0] = vertex_ao(!is_transparent(chunk, x, y-1, z+1), !is_transparent(chunk, x-1, y, z+1), !is_transparent(chunk, x-1, y-1, z+1));
+        ao[1] = vertex_ao(!is_transparent(chunk, x+1, y-1, z+1), !is_transparent(chunk, x+2, y, z+1), !is_transparent(chunk, x+2, y-1, z+1));
+        ao[2] = vertex_ao(!is_transparent(chunk, x+1, y+2, z+1), !is_transparent(chunk, x+2, y+1, z+1), !is_transparent(chunk, x+2, y+2, z+1));
+        ao[3] = vertex_ao(!is_transparent(chunk, x, y+2, z+1), !is_transparent(chunk, x-1, y+1, z+1), !is_transparent(chunk, x-1, y+2, z+1));
+    } else if (face == 1) { // Back (-Z)
+        ao[0] = vertex_ao(!is_transparent(chunk, x+1, y-1, z), !is_transparent(chunk, x+2, y, z), !is_transparent(chunk, x+2, y-1, z));
+        ao[1] = vertex_ao(!is_transparent(chunk, x, y-1, z), !is_transparent(chunk, x-1, y, z), !is_transparent(chunk, x-1, y-1, z));
+        ao[2] = vertex_ao(!is_transparent(chunk, x, y+2, z), !is_transparent(chunk, x-1, y+1, z), !is_transparent(chunk, x-1, y+2, z));
+        ao[3] = vertex_ao(!is_transparent(chunk, x+1, y+2, z), !is_transparent(chunk, x+2, y+1, z), !is_transparent(chunk, x+2, y+2, z));
+    } else if (face == 2) { // Left (-X)
+        ao[0] = vertex_ao(!is_transparent(chunk, x, y-1, z), !is_transparent(chunk, x, y, z-1), !is_transparent(chunk, x, y-1, z-1));
+        ao[1] = vertex_ao(!is_transparent(chunk, x, y-1, z+1), !is_transparent(chunk, x, y, z+2), !is_transparent(chunk, x, y-1, z+2));
+        ao[2] = vertex_ao(!is_transparent(chunk, x, y+2, z+1), !is_transparent(chunk, x, y+1, z+2), !is_transparent(chunk, x, y+2, z+2));
+        ao[3] = vertex_ao(!is_transparent(chunk, x, y+2, z), !is_transparent(chunk, x, y+1, z-1), !is_transparent(chunk, x, y+2, z-1));
+    } else if (face == 3) { // Right (+X)
+        ao[0] = vertex_ao(!is_transparent(chunk, x+1, y-1, z+1), !is_transparent(chunk, x+1, y, z+2), !is_transparent(chunk, x+1, y-1, z+2));
+        ao[1] = vertex_ao(!is_transparent(chunk, x+1, y-1, z), !is_transparent(chunk, x+1, y, z-1), !is_transparent(chunk, x+1, y-1, z-1));
+        ao[2] = vertex_ao(!is_transparent(chunk, x+1, y+2, z), !is_transparent(chunk, x+1, y+1, z-1), !is_transparent(chunk, x+1, y+2, z-1));
+        ao[3] = vertex_ao(!is_transparent(chunk, x+1, y+2, z+1), !is_transparent(chunk, x+1, y+1, z+2), !is_transparent(chunk, x+1, y+2, z+2));
+    } else if (face == 4) { // Top (+Y)
+        ao[0] = vertex_ao(!is_transparent(chunk, x-1, y+1, z+1), !is_transparent(chunk, x, y+1, z+2), !is_transparent(chunk, x-1, y+1, z+2));
+        ao[1] = vertex_ao(!is_transparent(chunk, x+2, y+1, z+1), !is_transparent(chunk, x+1, y+1, z+2), !is_transparent(chunk, x+2, y+1, z+2));
+        ao[2] = vertex_ao(!is_transparent(chunk, x+2, y+1, z), !is_transparent(chunk, x+1, y+1, z-1), !is_transparent(chunk, x+2, y+1, z-1));
+        ao[3] = vertex_ao(!is_transparent(chunk, x-1, y+1, z), !is_transparent(chunk, x, y+1, z-1), !is_transparent(chunk, x-1, y+1, z-1));
+    } else { // Bottom (-Y)
+        ao[0] = vertex_ao(!is_transparent(chunk, x-1, y, z), !is_transparent(chunk, x, y, z-1), !is_transparent(chunk, x-1, y, z-1));
+        ao[1] = vertex_ao(!is_transparent(chunk, x+2, y, z), !is_transparent(chunk, x+1, y, z-1), !is_transparent(chunk, x+2, y, z-1));
+        ao[2] = vertex_ao(!is_transparent(chunk, x+2, y, z+1), !is_transparent(chunk, x+1, y, z+2), !is_transparent(chunk, x+2, y, z+2));
+        ao[3] = vertex_ao(!is_transparent(chunk, x-1, y, z+1), !is_transparent(chunk, x, y, z+2), !is_transparent(chunk, x-1, y, z+2));
+    }
+
+    add_vertex(mesh, p[0][0], p[0][1], p[0][2], c.r, c.g, c.b, nx, ny, nz, ao[0], uv.u_off, uv.v_off);
+    add_vertex(mesh, p[1][0], p[1][1], p[1][2], c.r, c.g, c.b, nx, ny, nz, ao[1], uv.u_off + uv.w, uv.v_off);
+    add_vertex(mesh, p[2][0], p[2][1], p[2][2], c.r, c.g, c.b, nx, ny, nz, ao[2], uv.u_off + uv.w, uv.v_off + uv.h);
+    add_vertex(mesh, p[0][0], p[0][1], p[0][2], c.r, c.g, c.b, nx, ny, nz, ao[0], uv.u_off, uv.v_off);
+    add_vertex(mesh, p[2][0], p[2][1], p[2][2], c.r, c.g, c.b, nx, ny, nz, ao[2], uv.u_off + uv.w, uv.v_off + uv.h);
+    add_vertex(mesh, p[3][0], p[3][1], p[3][2], c.r, c.g, c.b, nx, ny, nz, ao[3], uv.u_off, uv.v_off + uv.h);
 }
 
 void mesh_generate_gpu(Mesh *mesh, GLuint compute_program, GLuint voxel_tex, int chunk_x, int chunk_z) {

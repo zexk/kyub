@@ -3,8 +3,8 @@
 #include <math.h>
 
 static bool position_is_safe(World *world, vec3 pos) {
-    int head_y = (int)pos.y;
-    int feet_y = (int)(pos.y - PLAYER_EYES_HEIGHT);
+    int head_y = (int)floorf(pos.y + (PLAYER_HEIGHT - PLAYER_EYES_HEIGHT));
+    int feet_y = (int)floorf(pos.y - PLAYER_EYES_HEIGHT);
 
     float hw = PLAYER_HALF_WIDTH;
     float min_x = pos.x - hw;
@@ -13,10 +13,10 @@ static bool position_is_safe(World *world, vec3 pos) {
     float max_z = pos.z + hw;
 
     for (int y = feet_y; y <= head_y; y++) {
-        int xi1 = (int)min_x;
-        int xi2 = (int)max_x;
-        int zi1 = (int)min_z;
-        int zi2 = (int)max_z;
+        int xi1 = (int)floorf(min_x);
+        int xi2 = (int)floorf(max_x);
+        int zi1 = (int)floorf(min_z);
+        int zi2 = (int)floorf(max_z);
 
         if (world_is_solid(world, xi1, y, zi1)) return false;
         if (world_is_solid(world, xi1, y, zi2)) return false;
@@ -79,14 +79,17 @@ void camera_update(Camera *cam, float dt, World *world) {
         float new_x = cam->pos.x + move_dir.x * velocity;
         float new_z = cam->pos.z + move_dir.z * velocity;
 
+        float orig_x = cam->pos.x;
+        float orig_z = cam->pos.z;
+
         // Check X separately for sliding
-        vec3 test_pos = {new_x, cam->pos.y, cam->pos.z};
+        vec3 test_pos = {new_x, cam->pos.y, orig_z};
         if (position_is_safe(world, test_pos)) {
             cam->pos.x = new_x;
         }
 
-        // Check Z separately for sliding
-        test_pos.x = cam->pos.x;
+        // Check Z separately for sliding (using original X)
+        test_pos.x = orig_x;
         test_pos.z = new_z;
         if (position_is_safe(world, test_pos)) {
             cam->pos.z = new_z;
@@ -97,7 +100,7 @@ void camera_update(Camera *cam, float dt, World *world) {
     cam->velocity.y -= GRAVITY * dt;
     cam->pos.y += cam->velocity.y * dt;
 
-    // Ground collision - only check feet level, not head
+    // Ground collision - only check feet level
     if (cam->velocity.y < 0) {
         float feet_y = cam->pos.y - PLAYER_EYES_HEIGHT;
         int feet_cell = (int)floorf(feet_y);
