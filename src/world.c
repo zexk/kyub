@@ -77,7 +77,7 @@ void world_update(World *world, vec3 camera_pos) {
         if (world->chunks[i].active) {
             int dx = abs(world->chunks[i].chunk->x - cx);
             int dz = abs(world->chunks[i].chunk->z - cz);
-            if (dx > world->render_distance || dz > world->render_distance) {
+            if (dx > world->render_distance + 2 || dz > world->render_distance + 2) {
                 unload_chunk(world, i);
             }
         }
@@ -115,6 +115,12 @@ void world_set_block(World *world, int x, int y, int z, BlockType type) {
     int cx = (int)floorf((float)x / CHUNK_SIZE);
     int cz = (int)floorf((float)z / CHUNK_SIZE);
     LoadedChunk *lc = find_chunk(world, cx, cz);
+    if (!lc) {
+        if (world->count < world->capacity) {
+            load_chunk(world, cx, cz);
+            lc = find_chunk(world, cx, cz);
+        }
+    }
     if (!lc) return;
     int lx = x - cx * CHUNK_SIZE;
     int lz = z - cz * CHUNK_SIZE;

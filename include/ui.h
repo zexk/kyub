@@ -37,6 +37,7 @@ typedef struct {
     float player_yaw;
     float player_pitch;
     int render_distance;
+    bool fps_unlimited;
 } UI;
 
 void ui_init(UI *ui, int width, int height);

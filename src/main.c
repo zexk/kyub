@@ -14,7 +14,9 @@
 #include "platform.h"
 #include "platform_x11.h"
 #include <GL/glx.h>
+#include <GL/glext.h>
 #include <time.h>
+#include <unistd.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -23,6 +25,9 @@ static double get_time_s(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
+
+typedef void (*PFNGLXSWAPINTERVALEXTPROC)(Display*, GLXDrawable, int);
+static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
 
 int main(void) {
     if (platform_init(800, 600) != 0) return 1;
@@ -38,6 +43,14 @@ int main(void) {
     GLXContext gl_context = glXCreateContext(display, visual_info, NULL, GL_TRUE);
     glXMakeCurrent(display, window, gl_context);
     if (!gl_ext_init()) return 1;
+
+    glXSwapIntervalEXT = (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddress((const GLubyte*)"glXSwapIntervalEXT");
+    if (!glXSwapIntervalEXT) {
+        glXSwapIntervalEXT = (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddress((const GLubyte*)"glXSwapIntervalMESA");
+    }
+    if (glXSwapIntervalEXT) {
+        glXSwapIntervalEXT(display, window, 1);
+    }
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -84,6 +97,7 @@ int main(void) {
     platform_hide_cursor(true);
 
     double last_time = get_time_s();
+    double last_fps_update = 0.0;
     bool running = true;
     bool paused = false;
     int win_width = 800;
@@ -92,7 +106,9 @@ int main(void) {
     platform_get_window_size(&win_width, &win_height);
 
     while (running) {
+        platform_get_window_size(&win_width, &win_height);
         double now = get_time_s();
+
         double dt = now - last_time;
         last_time = now;
 
@@ -117,6 +133,10 @@ int main(void) {
                     if (ui_is_visible(&ui)) {
                         ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y);
                     }
+                } else if (event.type == 5) {  // EVENT_RESIZE
+                    win_width = event.resize.width;
+                    win_height = event.resize.height;
+                    glViewport(0, 0, win_width, win_height);
                 }
             } else {
                 if (event.type == 1) {  // EVENT_KEY_DOWN
@@ -255,7 +275,10 @@ int main(void) {
         for (int i = 0; i < world.capacity; i++) {
             if (world.chunks[i].active) active_chunks++;
         }
-        ui_set_stats(&ui, 1.0f / dt, active_chunks, camera.pos, camera.front, camera.yaw, camera.pitch);
+        if (now - last_fps_update >= 0.5) {
+            ui_set_stats(&ui, (int)(1.0f / dt + 0.5f), active_chunks, camera.pos, camera.front, camera.yaw, camera.pitch);
+            last_fps_update = now;
+        }
 
         ui_render(&ui, win_width, win_height);
 
@@ -264,6 +287,14 @@ int main(void) {
         glEnable(GL_DEPTH_TEST);
 
         glXSwapBuffers(display, window);
+
+        if (glXSwapIntervalEXT) {
+            static bool prev_fps_unlimited = false;
+            if (ui.fps_unlimited != prev_fps_unlimited) {
+                glXSwapIntervalEXT(display, window, ui.fps_unlimited ? 0 : 1);
+                prev_fps_unlimited = ui.fps_unlimited;
+            }
+        }
     }
 
     ui_shutdown(&ui);

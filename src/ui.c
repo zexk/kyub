@@ -166,11 +166,18 @@ void ui_render(UI *ui, int width, int height) {
     nk_buffer_clear(&ui->vertices);
     nk_buffer_clear(&ui->elements);
 
-    if (nk_begin(&ui->ctx, "Debug", nk_rect(10, 10, 250, 200), NK_WINDOW_BORDER)) {
+    ui->ctx.style.window.background = nk_rgba(40, 40, 40, 255);
+    ui->ctx.style.window.group_padding = nk_vec2(0, 0);
+    ui->ctx.style.window.spacing = nk_vec2(0, 0);
+
+    if (nk_begin(&ui->ctx, "Debug", nk_rect(10, 10, 350, 400), NK_WINDOW_BORDER | NK_WINDOW_BACKGROUND)) {
         nk_layout_row_dynamic(&ui->ctx, 20, 1);
 
-        char buf[64];
+        nk_bool fps_unlimited = ui->fps_unlimited ? 1 : 0;
+        nk_checkbox_label(&ui->ctx, "Unlimited FPS", &fps_unlimited);
+        ui->fps_unlimited = fps_unlimited ? true : false;
 
+        char buf[64];
         snprintf(buf, sizeof(buf), "FPS: %.1f", ui->fps);
         nk_label(&ui->ctx, buf, NK_TEXT_LEFT);
 
