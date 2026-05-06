@@ -364,7 +364,6 @@ R_VAO skybox_vao = renderer_create_vao();
         int fog_density_loc = renderer_uniform_location(shader_program, "uFogDensity");
         renderer_uniform_float(fog_density_loc, 0.015f);
 
-        mat4 model = mat4_identity();
         mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
         mat4 view = camera_get_view_matrix(&camera);
 
@@ -372,7 +371,6 @@ R_VAO skybox_vao = renderer_create_vao();
         frustum_extract(&frustum, mat4_multiply(projection, view));
 
         int model_loc = renderer_uniform_location(shader_program, "model");
-        renderer_uniform_mat4(model_loc, model.m);
         int view_loc = renderer_uniform_location(shader_program, "view");
         renderer_uniform_mat4(view_loc, view.m);
         int proj_loc = renderer_uniform_location(shader_program, "projection");
@@ -380,6 +378,13 @@ R_VAO skybox_vao = renderer_create_vao();
 
         for (int i = 0; i < world.capacity; i++) {
             if (world.chunks[i].active && frustum_intersects_box(&frustum, world.chunks[i].chunk->min, world.chunks[i].chunk->max)) {
+                /* Set model matrix per-chunk with chunk's world position */
+                mat4 model = mat4_translate((vec3){
+                    (float)(world.chunks[i].chunk->x * CHUNK_SIZE),
+                    0.0f,
+                    (float)(world.chunks[i].chunk->z * CHUNK_SIZE)
+                });
+                renderer_uniform_mat4(model_loc, model.m);
                 renderer_bind_vao(world.chunks[i].mesh->vao);
 #if defined(ENABLE_COMPUTE) && !defined(RENDERER_VULKAN)
                 renderer_bind_buffer(R_BUF_DRAW_INDIRECT, world.chunks[i].mesh->indirect_draw_buffer);
