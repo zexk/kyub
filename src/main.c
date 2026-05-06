@@ -244,9 +244,13 @@ GLuint skybox_vao, skybox_vbo;
         camera_update(&camera, dt, &world);
         world_update(&world, camera.pos);
 
-        static bool prev_left = false, prev_right = false;
+        static float break_cooldown = 0.0f;
+        static float place_cooldown = 0.0f;
+        break_cooldown -= (float)dt;
+        place_cooldown -= (float)dt;
+
         if (!paused) {
-            if (g_input.mouse_left && !prev_left) {
+            if (g_input.mouse_left && break_cooldown <= 0.0f) {
                 vec3 dir = camera.front;
                 vec3 pos = camera.pos;
                 bool hit_found = false;
@@ -271,8 +275,9 @@ GLuint skybox_vao, skybox_vbo;
                 } else {
                     LOG_DEBUG(CAT_WORLD, "Break no block hit in range");
                 }
+                break_cooldown = 0.25f;
             }
-            if (g_input.mouse_right && !prev_right) {
+            if (g_input.mouse_right && place_cooldown <= 0.0f) {
                 vec3 dir = camera.front;
                 vec3 pos = camera.pos;
                 bool prev_found = false;
@@ -303,10 +308,9 @@ GLuint skybox_vao, skybox_vbo;
                 if (!prev_found) {
                     LOG_DEBUG(CAT_WORLD, "Place no block hit in range");
                 }
+                place_cooldown = 0.25f;
             }
         }
-        prev_left = g_input.mouse_left;
-        prev_right = g_input.mouse_right;
 
         // Block highlight raycast
         bool hl_found = false;
