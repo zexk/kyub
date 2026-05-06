@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -std=c99 -Wall -Wextra -g -Iinclude -DENABLE_COMPUTE $(CFLAGS_EXTRA)
+CFLAGS = -std=c99 -Wall -Wextra -g -Iinclude -DENABLE_COMPUTE -DENABLE_LOGGER $(CFLAGS_EXTRA)
 LDFLAGS = -lX11 -lGL -lm -lrt
 
 SRC_DIR = src

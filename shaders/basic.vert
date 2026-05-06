@@ -13,11 +13,14 @@ out vec3 ourColor;
 out vec3 Normal;
 out float AO;
 out vec2 TexCoord;
+out vec3 view_pos;
 
 void main() {
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
+    vec4 world_pos = model * vec4(aPos, 1.0);
+    gl_Position = projection * view * world_pos;
     ourColor = aColor;
     Normal = aNormal;
     AO = aAO;
     TexCoord = aTexCoord;
+    view_pos = (view * world_pos).xyz;
 }

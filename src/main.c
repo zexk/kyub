@@ -226,12 +226,14 @@ GLuint skybox_vao, skybox_vbo;
         camera_update(&camera, dt, &world);
         world_update(&world, camera.pos);
 
+        static bool prev_left = false, prev_right = false;
         if (!paused) {
-            static bool prev_left = false, prev_right = false;
             if (g_input.mouse_left && !prev_left) {
                 vec3 dir = camera.front;
                 vec3 pos = camera.pos;
-                int hit_x = -1, hit_y = -1, hit_z = -1;
+                bool hit_found = false;
+                int hit_x = 0, hit_y = 0, hit_z = 0;
+                LOG_DEBUG(CAT_WORLD, "Break raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f", pos.x, pos.y, pos.z, dir.x, dir.y, dir.z);
                 for (float t = 0; t < 8.0f; t += 0.05f) {
                     vec3 p = vec3_add(pos, vec3_mul(dir, t));
                     int bx = (int)floorf(p.x);
@@ -239,16 +241,25 @@ GLuint skybox_vao, skybox_vbo;
                     int bz = (int)floorf(p.z);
                     BlockType b = world_get_block(&world, bx, by, bz);
                     if (b != BLOCK_AIR) {
+                        hit_found = true;
                         hit_x = bx; hit_y = by; hit_z = bz;
+                        LOG_DEBUG(CAT_WORLD, "Break hit block at %d,%d,%d type=%d", bx, by, bz, b);
                         break;
                     }
                 }
-                if (hit_x >= 0) world_set_block(&world, hit_x, hit_y, hit_z, BLOCK_AIR);
+                if (hit_found) {
+                    LOG_DEBUG(CAT_WORLD, "Break setting block %d,%d,%d to AIR", hit_x, hit_y, hit_z);
+                    world_set_block(&world, hit_x, hit_y, hit_z, BLOCK_AIR);
+                } else {
+                    LOG_DEBUG(CAT_WORLD, "Break no block hit in range");
+                }
             }
             if (g_input.mouse_right && !prev_right) {
                 vec3 dir = camera.front;
                 vec3 pos = camera.pos;
-                int prev_x = -1, prev_y = -1, prev_z = -1;
+                bool prev_found = false;
+                int prev_x = 0, prev_y = 0, prev_z = 0;
+                LOG_DEBUG(CAT_WORLD, "Place raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f", pos.x, pos.y, pos.z, dir.x, dir.y, dir.z);
                 for (float t = 0; t < 8.0f; t += 0.05f) {
                     vec3 p = vec3_add(pos, vec3_mul(dir, t));
                     int bx = (int)floorf(p.x);
@@ -256,16 +267,28 @@ GLuint skybox_vao, skybox_vbo;
                     int bz = (int)floorf(p.z);
                     BlockType b = world_get_block(&world, bx, by, bz);
                     if (b != BLOCK_AIR) {
-                        if (prev_x >= 0 && world_get_block(&world, prev_x, prev_y, prev_z) == BLOCK_AIR)
-                            world_set_block(&world, prev_x, prev_y, prev_z, ui.selected_block);
+                        if (prev_found) {
+                            BlockType prev_b = world_get_block(&world, prev_x, prev_y, prev_z);
+                            LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d type=%d, prev=%d,%d,%d type=%d", bx, by, bz, b, prev_x, prev_y, prev_z, prev_b);
+                            if (prev_b == BLOCK_AIR) {
+                                LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev_x, prev_y, prev_z, ui.selected_block);
+                                world_set_block(&world, prev_x, prev_y, prev_z, ui.selected_block);
+                            }
+                        } else {
+                            LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d but no previous position", bx, by, bz);
+                        }
                         break;
+                    }
+                    prev_found = true;
+                    prev_x = bx; prev_y = by; prev_z = bz;
                 }
-                prev_x = bx; prev_y = by; prev_z = bz;
+                if (!prev_found) {
+                    LOG_DEBUG(CAT_WORLD, "Place no block hit in range");
+                }
             }
         }
         prev_left = g_input.mouse_left;
         prev_right = g_input.mouse_right;
-        }
 
         glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -274,6 +297,8 @@ GLuint skybox_vao, skybox_vbo;
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, atlas);
         glUniform1i(glGetUniformLocation(shader_program, "uTexture"), 0);
+        glUniform3f(glGetUniformLocation(shader_program, "uFogColor"), 0.53f, 0.81f, 0.92f);
+        glUniform1f(glGetUniformLocation(shader_program, "uFogDensity"), 0.015f);
 
         mat4 model = mat4_identity();
         mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);

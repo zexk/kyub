@@ -5,8 +5,11 @@ in vec3 ourColor;
 in vec3 Normal;
 in float AO;
 in vec2 TexCoord;
+in vec3 view_pos;
 
 uniform sampler2D uTexture;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
 
 void main() {
     // Simple directional lighting
@@ -20,7 +23,13 @@ void main() {
     vec4 texColor = texture(uTexture, TexCoord);
     
     // Apply AO and lighting to the texture
-    vec3 result = texColor.rgb * light * AO;
+    vec3 lit_color = texColor.rgb * light * AO;
+    
+    // Distance fog
+    float dist = length(view_pos);
+    float fog = exp(-dist * uFogDensity);
+    fog = clamp(fog, 0.0, 1.0);
+    vec3 result = mix(uFogColor, lit_color, fog);
     
     FragColor = vec4(result, 1.0);
 }
