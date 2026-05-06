@@ -11,9 +11,9 @@
 #include "world.h"
 #include "texture.h"
 #include "ui.h"
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <X11/keysym.h>
+#include "platform.h"
+#include "platform_x11.h"
+#include <GL/glx.h>
 #include <time.h>
 #include <math.h>
 #include <stdio.h>
@@ -25,27 +25,15 @@ static double get_time_s(void) {
 }
 
 int main(void) {
-    Display *display = XOpenDisplay(NULL);
-    if (!display) return 1;
+    if (platform_init(800, 600) != 0) return 1;
+
+    Display *display = platform_x11_get_display();
+    Window window = platform_x11_get_window();
+
     int screen_id = DefaultScreen(display);
     int attributes[] = { GLX_RGBA, GLX_DEPTH_SIZE, 24, GLX_DOUBLEBUFFER, GLX_SAMPLE_BUFFERS, 1, GLX_SAMPLES, 4, None };
     XVisualInfo *visual_info = glXChooseVisual(display, screen_id, attributes);
     if (!visual_info) return 1;
-    Colormap colormap = XCreateColormap(display, RootWindow(display, screen_id), visual_info->visual, AllocNone);
-    XSetWindowAttributes window_attributes;
-    window_attributes.colormap = colormap;
-    window_attributes.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | StructureNotifyMask;
-    int width = 800, height = 600;
-    Window window = XCreateWindow(display, RootWindow(display, screen_id), 0, 0, width, height, 0, visual_info->depth, InputOutput, visual_info->visual, CWColormap | CWEventMask, &window_attributes);
-    XMapWindow(display, window);
-    
-    Pixmap blank = XCreateBitmapFromData(display, window, (char[]){0}, 1, 1);
-    XColor dummy;
-    Cursor cursor = XCreatePixmapCursor(display, blank, blank, &dummy, &dummy, 0, 0);
-    XDefineCursor(display, window, cursor);
-    
-    Atom wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(display, window, &wm_delete_window, 1);
 
     GLXContext gl_context = glXCreateContext(display, visual_info, NULL, GL_TRUE);
     glXMakeCurrent(display, window, gl_context);
@@ -89,62 +77,85 @@ int main(void) {
     camera_init(&camera);
     input_init();
 
-    XGrabPointer(display, window, True, PointerMotionMask, GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
-
     UI ui;
     ui.render_distance = world.render_distance;
-    ui_init(&ui, width, height);
+    ui_init(&ui, 800, 600);
+
+    platform_hide_cursor(true);
 
     double last_time = get_time_s();
     bool running = true;
+    bool paused = false;
+    int win_width = 800;
+    int win_height = 600;
+
+    platform_get_window_size(&win_width, &win_height);
 
     while (running) {
         double now = get_time_s();
         double dt = now - last_time;
         last_time = now;
 
-        while (XPending(display)) {
-            XEvent event;
-            XNextEvent(display, &event);
-            if (event.type == KeyPress) {
-                KeySym keysym = XLookupKeysym(&event.xkey, 0);
-                if (keysym == XK_w) input_set_key('w', true);
-                if (keysym == XK_s) input_set_key('s', true);
-                if (keysym == XK_a) input_set_key('a', true);
-                if (keysym == XK_d) input_set_key('d', true);
-                if (keysym == XK_Shift_L || keysym == XK_Shift_R) input_set_shift(true);
-                if (keysym == XK_F3) { g_input.key_f3 = true; ui_toggle(&ui); }
-                if (keysym == XK_Escape) running = false;
-            } else if (event.type == KeyRelease) {
-                KeySym keysym = XLookupKeysym(&event.xkey, 0);
-                if (keysym == XK_w) input_set_key('w', false);
-                if (keysym == XK_s) input_set_key('s', false);
-                if (keysym == XK_a) input_set_key('a', false);
-                if (keysym == XK_d) input_set_key('d', false);
-                if (keysym == XK_Shift_L || keysym == XK_Shift_R) input_set_shift(false);
-                if (keysym == XK_F3) g_input.key_f3 = false;
-            } else if (event.type == ButtonPress) {
-                input_set_mouse_button(event.xbutton.button, true);
-                ui_handle_mouse(&ui, event.xbutton.x, event.xbutton.y, NK_BUTTON_LEFT, true);
-            } else if (event.type == ButtonRelease) {
-                input_set_mouse_button(event.xbutton.button, false);
-                ui_handle_mouse(&ui, event.xbutton.x, event.xbutton.y, NK_BUTTON_LEFT, false);
-            } else if (event.type == MotionNotify) {
-                int dx = event.xmotion.x - width / 2;
-                int dy = event.xmotion.y - height / 2;
-                if (dx != 0 || dy != 0) {
-                    input_set_mouse_delta((float)dx, (float)dy);
-                    XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
+        Event event;
+        while (platform_poll_event(&event)) {
+            if (paused) {
+                if (event.type == EVENT_KEY_DOWN) {
+                    if (event.key.key == 'p') paused = false;
+                    if (event.key.key == 0x1B) running = false;
+                    ui_handle_key(&ui, event.key.key, true);
+                } else if (event.type == EVENT_KEY_UP) {
+                    ui_handle_key(&ui, event.key.key, false);
+                } else if (event.type == EVENT_MOUSE_BUTTON) {
+                    int btn = (event.mouse_button.button == MOUSE_BUTTON_LEFT) ? NK_BUTTON_LEFT :
+                            (event.mouse_button.button == MOUSE_BUTTON_MIDDLE) ? NK_BUTTON_MIDDLE : NK_BUTTON_RIGHT;
+                    ui_handle_mouse(&ui, event.mouse_button.x, event.mouse_button.y, btn, event.mouse_button.down);
+                } else if (event.type == EVENT_MOUSE_MOTION) {
+                    ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y, 0, false);
+                } else if (event.type == EVENT_RESIZE) {
+                    win_width = event.resize.width;
+                    win_height = event.resize.height;
+                    glViewport(0, 0, win_width, win_height);
+                } else if (event.type == EVENT_QUIT) {
+                    running = false;
                 }
-                if (ui_is_visible(&ui)) {
-                    ui_handle_mouse(&ui, event.xmotion.x, event.xmotion.y, 0, false);
+            } else {
+                if (event.type == EVENT_KEY_DOWN) {
+                    if (event.key.key == 'w') input_set_key('w', true);
+                    if (event.key.key == 's') input_set_key('s', true);
+                    if (event.key.key == 'a') input_set_key('a', true);
+                    if (event.key.key == 'd') input_set_key('d', true);
+                    if (event.key.key == 0x10) input_set_shift(true);
+                    if (event.key.key == 'p') {
+                        paused = true;
+                        platform_grab_mouse(false);
+                        platform_hide_cursor(false);
+                    }
+                    if (event.key.key == 0x1B) running = false;
+                } else if (event.type == EVENT_KEY_UP) {
+                    if (event.key.key == 'w') input_set_key('w', false);
+                    if (event.key.key == 's') input_set_key('s', false);
+                    if (event.key.key == 'a') input_set_key('a', false);
+                    if (event.key.key == 'd') input_set_key('d', false);
+                    if (event.key.key == 0x10) input_set_shift(false);
+                } else if (event.type == EVENT_MOUSE_BUTTON) {
+                    input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
+                } else if (event.type == EVENT_MOUSE_MOTION) {
+                    int dx = event.mouse_motion.x - win_width / 2;
+                    int dy = event.mouse_motion.y - win_height / 2;
+                    if (dx != 0 || dy != 0) {
+                        input_set_mouse_delta((float)dx, (float)dy);
+                        platform_warp_mouse(win_width / 2, win_height / 2);
+                    }
+                    if (ui_is_visible(&ui)) {
+                        ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y, 0, false);
+                    }
+                } else if (event.type == EVENT_RESIZE) {
+                    win_width = event.resize.width;
+                    win_height = event.resize.height;
+                    glViewport(0, 0, win_width, win_height);
+                } else if (event.type == EVENT_QUIT) {
+                    running = false;
                 }
-            } else if (event.type == ClientMessage) {
-                if ((Atom)event.xclient.data.l[0] == wm_delete_window) running = false;
-            } else if (event.type == ConfigureNotify) {
-                width = event.xconfigure.width;
-                height = event.xconfigure.height;
-                glViewport(0, 0, width, height);
             }
         }
 
@@ -194,16 +205,16 @@ int main(void) {
 
         glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
+
         glUseProgram(shader_program);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, atlas);
         glUniform1i(glGetUniformLocation(shader_program, "uTexture"), 0);
 
         mat4 model = mat4_identity();
-        mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)width / (float)height, 0.1f, 100.0f);
+        mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
         mat4 view = camera_get_view_matrix(&camera);
-        
+
         Frustum frustum;
         frustum_extract(&frustum, mat4_multiply(projection, view));
 
@@ -243,9 +254,8 @@ int main(void) {
         }
         ui_set_stats(&ui, 1.0f / dt, active_chunks, camera.pos, camera.front, camera.yaw, camera.pitch);
 
-        ui_render(&ui, width, height);
+        ui_render(&ui, win_width, win_height);
 
-        // Apply render distance from UI to world
         world.render_distance = ui.render_distance;
 
         glEnable(GL_DEPTH_TEST);
@@ -258,7 +268,6 @@ int main(void) {
     glDeleteProgram(shader_program);
     glXMakeCurrent(display, None, NULL);
     glXDestroyContext(display, gl_context);
-    XDestroyWindow(display, window);
-    XCloseDisplay(display);
+    platform_shutdown();
     return 0;
 }
