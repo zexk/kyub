@@ -71,6 +71,9 @@ int main(void) {
     unsigned int skybox_program = shader_create_program("shaders/skybox.vert", "shaders/skybox.frag");
     if (!skybox_program) return 1;
 
+    unsigned int outline_program = shader_create_program("shaders/outline.vert", "shaders/outline.frag");
+    if (!outline_program) return 1;
+
 GLuint skybox_vao, skybox_vbo;
     glGenVertexArrays(1, &skybox_vao);
     glGenBuffers(1, &skybox_vbo);
@@ -97,6 +100,21 @@ GLuint skybox_vao, skybox_vbo;
     glBindVertexArray(skybox_vao);
     glBindBuffer(GL_ARRAY_BUFFER, skybox_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(skybox_cube), skybox_cube, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
+    GLuint outline_vao, outline_vbo;
+    glGenVertexArrays(1, &outline_vao);
+    glGenBuffers(1, &outline_vbo);
+    float outline_cube[] = {
+        0,0,0, 1,0,0,   1,0,0, 1,0,1,   1,0,1, 0,0,1,   0,0,1, 0,0,0,
+        0,1,0, 1,1,0,   1,1,0, 1,1,1,   1,1,1, 0,1,1,   0,1,1, 0,1,0,
+        0,0,0, 0,1,0,   1,0,0, 1,1,0,   1,0,1, 1,1,1,   0,0,1, 0,1,1,
+    };
+    glBindVertexArray(outline_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, outline_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(outline_cube), outline_cube, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
@@ -290,6 +308,25 @@ GLuint skybox_vao, skybox_vbo;
         prev_left = g_input.mouse_left;
         prev_right = g_input.mouse_right;
 
+        // Block highlight raycast
+        bool hl_found = false;
+        int hl_x = 0, hl_y = 0, hl_z = 0;
+        {
+            vec3 dir = camera.front;
+            vec3 pos = camera.pos;
+            for (float t = 0; t < 8.0f; t += 0.05f) {
+                vec3 p = vec3_add(pos, vec3_mul(dir, t));
+                int bx = (int)floorf(p.x);
+                int by = (int)floorf(p.y);
+                int bz = (int)floorf(p.z);
+                if (world_get_block(&world, bx, by, bz) != BLOCK_AIR) {
+                    hl_found = true;
+                    hl_x = bx; hl_y = by; hl_z = bz;
+                    break;
+                }
+            }
+        }
+
         glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -322,6 +359,29 @@ GLuint skybox_vao, skybox_vbo;
                 glDrawArrays(GL_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
 #endif
             }
+        }
+
+        // Render block highlight outline
+        if (hl_found) {
+            glUseProgram(outline_program);
+            mat4 hl_model = mat4_translate((vec3){(float)hl_x, (float)hl_y, (float)hl_z});
+            glUniformMatrix4fv(glGetUniformLocation(outline_program, "model"), 1, GL_FALSE, hl_model.m);
+            glUniformMatrix4fv(glGetUniformLocation(outline_program, "view"), 1, GL_FALSE, view.m);
+            glUniformMatrix4fv(glGetUniformLocation(outline_program, "projection"), 1, GL_FALSE, projection.m);
+            glUniform3f(glGetUniformLocation(outline_program, "uColor"), 0.6f, 0.6f, 0.6f);
+
+            glDepthMask(GL_FALSE);
+            glPolygonOffset(-1.0f, -1.0f);
+            glEnable(GL_POLYGON_OFFSET_LINE);
+            glLineWidth(3.0f);
+
+            glBindVertexArray(outline_vao);
+            glDrawArrays(GL_LINES, 0, 24);
+            glBindVertexArray(0);
+
+            glLineWidth(1.0f);
+            glDisable(GL_POLYGON_OFFSET_LINE);
+            glDepthMask(GL_TRUE);
         }
 
         glDepthMask(GL_FALSE);
