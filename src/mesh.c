@@ -6,18 +6,18 @@ void mesh_init(Mesh *mesh) {
     mesh->vertex_count = 0;
     mesh->vertex_capacity = 4096;
     mesh->vertices = malloc(sizeof(Vertex) * mesh->vertex_capacity);
-    mesh->vao = 0;
-    mesh->vbo = 0;
-    mesh->ebo = 0;
-    mesh->indirect_draw_buffer = 0;
-    mesh->atomic_counter_buffer = 0;
+    mesh->vao = R_INVALID_HANDLE;
+    mesh->vbo = R_INVALID_HANDLE;
+    mesh->ebo = R_INVALID_HANDLE;
+    mesh->indirect_draw_buffer = R_INVALID_HANDLE;
+    mesh->atomic_counter_buffer = R_INVALID_HANDLE;
     // Allocate a large VBO for GPU generation (max vertices heuristic)
     // 16MB is safe for 16^3 checkerboard chunk (max faces).
     size_t vbo_size = 16 * 1024 * 1024;
-    if (mesh->vbo == 0) glGenBuffers(1, &mesh->vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
-    glBufferData(GL_ARRAY_BUFFER, vbo_size, NULL, GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
+    renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
+    renderer_buffer_data(R_BUF_ARRAY, vbo_size, NULL, R_USAGE_DYNAMIC);
+    renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
 }
 
 #define EPSILON 0.002f  // Larger offset to prevent z-fighting gaps
@@ -133,29 +133,30 @@ static void add_face(Mesh *mesh, Chunk *chunk, int x, int y, int z, int face, Bl
     add_vertex(mesh, p[3][0], p[3][1], p[3][2], c.r, c.g, c.b, nx, ny, nz, ao[3], uv.u_off, uv.v_off + uv.h);
 }
 
-void mesh_generate_gpu(Mesh *mesh, GLuint compute_program, GLuint voxel_tex, int chunk_x, int chunk_z) {
-    glUseProgram(compute_program);
+void mesh_generate_gpu(Mesh *mesh, R_Program compute_program, R_Texture voxel_tex, int chunk_x, int chunk_z) {
+    renderer_use_program(compute_program);
 
-    glBindImageTexture(0, voxel_tex, 0, GL_TRUE, 0, GL_READ_ONLY, GL_R8UI);
+    renderer_bind_image_texture(0, voxel_tex, R_ACCESS_READ_ONLY);
 
     // Bind vertex buffer as SSBO
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh->vbo);
+    renderer_bind_buffer_base(R_BUF_SHADER_STORAGE, 1, mesh->vbo);
 
     // Bind atomic counter
-    glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, mesh->atomic_counter_buffer);
-    GLuint zero = 0;
-    glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), &zero);
+    renderer_bind_buffer_base(R_BUF_ATOMIC_COUNTER, 0, mesh->atomic_counter_buffer);
+    uint32_t zero = 0;
+    renderer_buffer_sub_data(R_BUF_ATOMIC_COUNTER, 0, sizeof(uint32_t), &zero);
 
     // Set uniforms
-    glUniform2i(glGetUniformLocation(compute_program, "uChunkPos"), chunk_x, chunk_z);
+    int loc = renderer_uniform_location(compute_program, "uChunkPos");
+    renderer_uniform_ivec2(loc, chunk_x, chunk_z);
 
     // Dispatch compute shader
     // CHUNK_SIZE = 16. Local size in shader is 4x4x4.
     // So we need 16/4 = 4 groups in each dimension.
-    glDispatchCompute(4, 4, 4);
+    renderer_dispatch_compute(4, 4, 4);
 
     // Memory barrier to ensure writing to VBO and atomic counter is finished
-    glMemoryBarrier(0xFFFFFFFF); // GL_ALL_BARRIER_BITS
+    renderer_memory_barrier(R_BARRIER_ALL);
 
     // Update the indirect draw buffer
     mesh_update_draw_count(mesh);
@@ -180,77 +181,78 @@ void mesh_generate_greedy(Mesh *mesh, Chunk *chunk) {
 }
 
 void mesh_upload(Mesh *mesh) {
-    if (mesh->vao == 0) glGenVertexArrays(1, &mesh->vao);
-    if (mesh->vbo == 0) glGenBuffers(1, &mesh->vbo);
-    glBindVertexArray(mesh->vao);
-    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
-    glBufferData(GL_ARRAY_BUFFER, mesh->vertex_count * sizeof(Vertex), mesh->vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(4 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(8 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(12 * sizeof(float)));
-    glEnableVertexAttribArray(4);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(mesh->vao);
+    if (mesh->vao == R_INVALID_HANDLE) mesh->vao = renderer_create_vao();
+    if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
+    renderer_bind_vao(mesh->vao);
+    renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
+    renderer_buffer_data(R_BUF_ARRAY, mesh->vertex_count * sizeof(Vertex), mesh->vertices, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 0);
+    renderer_enable_attrib(0);
+    renderer_attrib_pointer(1, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 4 * sizeof(float));
+    renderer_enable_attrib(1);
+    renderer_attrib_pointer(2, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 8 * sizeof(float));
+    renderer_enable_attrib(2);
+    renderer_attrib_pointer(3, 1, R_TYPE_FLOAT, false, sizeof(Vertex), 11 * sizeof(float));
+    renderer_enable_attrib(3);
+    renderer_attrib_pointer(4, 2, R_TYPE_FLOAT, false, sizeof(Vertex), 12 * sizeof(float));
+    renderer_enable_attrib(4);
+    renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
+    renderer_bind_vao(mesh->vao);
 }
 
 void mesh_prepare_gpu(Mesh *mesh) {
     // Ensure VAO exists
-    if (mesh->vao == 0) glGenVertexArrays(1, &mesh->vao);
-    glBindVertexArray(mesh->vao);
+    if (mesh->vao == R_INVALID_HANDLE) mesh->vao = renderer_create_vao();
+    renderer_bind_vao(mesh->vao);
     // VBO should already be allocated; just bind it
-    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
     // Set attribute pointers (same layout as mesh_upload)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(4 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(8 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(12 * sizeof(float)));
-    glEnableVertexAttribArray(4);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
+    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 0);
+    renderer_enable_attrib(0);
+    renderer_attrib_pointer(1, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 4 * sizeof(float));
+    renderer_enable_attrib(1);
+    renderer_attrib_pointer(2, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 8 * sizeof(float));
+    renderer_enable_attrib(2);
+    renderer_attrib_pointer(3, 1, R_TYPE_FLOAT, false, sizeof(Vertex), 11 * sizeof(float));
+    renderer_enable_attrib(3);
+    renderer_attrib_pointer(4, 2, R_TYPE_FLOAT, false, sizeof(Vertex), 12 * sizeof(float));
+    renderer_enable_attrib(4);
+    renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
+    renderer_bind_vao(R_INVALID_HANDLE);
 
     // Allocate indirect draw buffer (count, instanceCount, first, baseInstance)
-    glGenBuffers(1, &mesh->indirect_draw_buffer);
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh->indirect_draw_buffer);
-    GLuint zero_cmd[4] = {0, 1, 0, 0};
-    glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(zero_cmd), zero_cmd, GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+    mesh->indirect_draw_buffer = renderer_create_buffer();
+    renderer_bind_buffer(R_BUF_DRAW_INDIRECT, mesh->indirect_draw_buffer);
+    uint32_t zero_cmd[4] = {0, 1, 0, 0};
+    renderer_buffer_data(R_BUF_DRAW_INDIRECT, sizeof(zero_cmd), zero_cmd, R_USAGE_DYNAMIC);
+    renderer_bind_buffer(R_BUF_DRAW_INDIRECT, R_INVALID_HANDLE);
 
     // Allocate atomic counter buffer
-    glGenBuffers(1, &mesh->atomic_counter_buffer);
-    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, mesh->atomic_counter_buffer);
-    GLuint zero = 0;
-    glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), &zero, GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+    mesh->atomic_counter_buffer = renderer_create_buffer();
+    renderer_bind_buffer(R_BUF_ATOMIC_COUNTER, mesh->atomic_counter_buffer);
+    uint32_t zero = 0;
+    renderer_buffer_data(R_BUF_ATOMIC_COUNTER, sizeof(uint32_t), &zero, R_USAGE_DYNAMIC);
+    renderer_bind_buffer(R_BUF_ATOMIC_COUNTER, R_INVALID_HANDLE);
 }
 
 void mesh_update_draw_count(Mesh *mesh) {
     // Read the atomic counter (number of vertices generated)
-    GLuint count = 0;
-    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, mesh->atomic_counter_buffer);
-    glGetBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), &count);
-    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+    uint32_t count = 0;
+    renderer_bind_buffer(R_BUF_ATOMIC_COUNTER, mesh->atomic_counter_buffer);
+    renderer_get_buffer_sub_data(R_BUF_ATOMIC_COUNTER, 0, sizeof(uint32_t), &count);
+    renderer_bind_buffer(R_BUF_ATOMIC_COUNTER, R_INVALID_HANDLE);
 
     // Update indirect draw buffer: count, instanceCount=1, first=0, baseInstance=0
-    GLuint cmd[4] = { count, 1, 0, 0 };
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh->indirect_draw_buffer);
-    glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(cmd), cmd);
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+    uint32_t cmd[4] = {count, 1, 0, 0};
+    renderer_bind_buffer(R_BUF_DRAW_INDIRECT, mesh->indirect_draw_buffer);
+    renderer_buffer_sub_data(R_BUF_DRAW_INDIRECT, 0, sizeof(cmd), cmd);
+    renderer_bind_buffer(R_BUF_DRAW_INDIRECT, R_INVALID_HANDLE);
 }
 
 void mesh_free(Mesh *mesh) {
     free(mesh->vertices);
-    if (mesh->indirect_draw_buffer != 0) glDeleteBuffers(1, &mesh->indirect_draw_buffer);
-    if (mesh->atomic_counter_buffer != 0) glDeleteBuffers(1, &mesh->atomic_counter_buffer);
-    if (mesh->vao != 0) glDeleteVertexArrays(1, &mesh->vao);
+    if (mesh->indirect_draw_buffer != R_INVALID_HANDLE) renderer_destroy_buffer(mesh->indirect_draw_buffer);
+    if (mesh->atomic_counter_buffer != R_INVALID_HANDLE) renderer_destroy_buffer(mesh->atomic_counter_buffer);
+    if (mesh->vao != R_INVALID_HANDLE) renderer_destroy_vao(mesh->vao);
+    if (mesh->vbo != R_INVALID_HANDLE) renderer_destroy_buffer(mesh->vbo);
 }

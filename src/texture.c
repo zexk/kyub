@@ -1,31 +1,27 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "texture.h"
-#include "gl_ext.h"
 #include "logger.h"
 #include <stb/stb_image.h>
 #include <stdio.h>
 
-
-GLuint texture_load(const char *path) {
+R_Texture texture_load(const char *path) {
     int width, height, channels;
     unsigned char *data = stbi_load(path, &width, &height, &channels, 0);
     if (!data) {
         LOG_ERROR(CAT_GL, "Failed to load texture: %s", path);
-        return 0;
+        return R_INVALID_HANDLE;
     }
 
-    GLuint texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    R_Texture texture = renderer_create_texture();
+    renderer_bind_texture(R_TEX_2D, texture);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    renderer_tex_param(R_TEX_2D, R_TEX_WRAP_S, R_TEX_REPEAT);
+    renderer_tex_param(R_TEX_2D, R_TEX_WRAP_T, R_TEX_REPEAT);
+    renderer_tex_param(R_TEX_2D, R_TEX_MIN_FILTER, R_TEX_NEAREST);
+    renderer_tex_param(R_TEX_2D, R_TEX_MAG_FILTER, R_TEX_NEAREST);
 
-    GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
-    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-    glGenerateMipmap(GL_TEXTURE_2D);
+    renderer_tex_image_2d(width, height, data);
+    renderer_generate_mipmap();
 
     stbi_image_free(data);
     LOG_INFO(CAT_GL, "Loaded texture: %s (%dx%d)", path, width, height);

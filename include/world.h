@@ -10,7 +10,7 @@ typedef struct LoadedChunk {
     Mesh *mesh;
     bool active;
     bool dirty;
-    GLuint voxel_tex;
+    R_Texture voxel_tex;
 } LoadedChunk;
 
 typedef struct World {
@@ -18,7 +18,7 @@ typedef struct World {
     int capacity;
     int count;
     int render_distance;
-    GLuint mesh_compute_program;
+    R_Program mesh_compute_program;
 } World;
 
 void world_init(World *world, int render_distance);

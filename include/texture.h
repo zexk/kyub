@@ -1,8 +1,8 @@
 #ifndef TEXTURE_H
 #define TEXTURE_H
 
-#include <GL/gl.h>
+#include "renderer.h"
 
-GLuint texture_load(const char *path);
+R_Texture texture_load(const char *path);
 
 #endif // TEXTURE_H

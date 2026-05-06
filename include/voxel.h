@@ -2,7 +2,7 @@
 #define VOXEL_H
 
 #include <stdint.h>
-#include "gl_ext.h"
+#include "renderer.h"
 #include "math3d.h"
 
 #define CHUNK_SIZE 16
@@ -20,7 +20,7 @@ typedef struct {
     vec3 min, max;
 } Chunk;
 
-void voxel_upload_texture(GLuint *tex, const Chunk *chunk);
+void voxel_upload_texture(R_Texture *tex, const Chunk *chunk);
 void chunk_init(Chunk *chunk, int x, int z);
 
 #endif // VOXEL_H

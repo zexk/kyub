@@ -1,7 +1,11 @@
-#version 330 core
-out vec4 FragColor;
-uniform vec3 uColor;
+#version 450 core
+
+layout(location = 0) out vec4 FragColor;
+
+layout(push_constant) uniform PushConstants {
+    vec3 uColor;
+} pc;
 
 void main() {
-    FragColor = vec4(uColor, 1.0);
+    FragColor = vec4(pc.uColor, 1.0);
 }

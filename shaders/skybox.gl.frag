@@ -1,8 +1,7 @@
-#version 450 core
+#version 330 core
+out vec4 FragColor;
 
-layout(location = 0) out vec4 FragColor;
-
-layout(location = 0) in vec3 pos;
+in vec3 pos;
 
 void main() {
     vec3 horizon = vec3(0.53, 0.81, 0.92);
