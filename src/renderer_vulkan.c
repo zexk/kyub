@@ -13,6 +13,9 @@
 /* Maximum number of frames in flight */
 #define MAX_FRAMES_IN_FLIGHT 2
 
+/* 1 second timeout for fence waits and image acquisition (in nanoseconds) */
+#define FENCE_TIMEOUT_NS 1000000000ULL
+
 /* Maximum resources */
 #define MAX_PIPELINES 16
 #define MAX_BUFFERS 256
@@ -121,6 +124,9 @@ typedef struct {
     VkBuffer bound_vbo;
     VkBuffer bound_index_buffer;
     VkPipeline active_pipeline_handle;
+
+    /* Presentation mode */
+    VkPresentModeKHR present_mode;
 } VulkanContext;
 
 static VulkanContext g_vk = {0};
@@ -356,21 +362,26 @@ static bool create_swapchain(void) {
     VkPresentModeKHR *modes = malloc(sizeof(VkPresentModeKHR) * mode_count);
     vkGetPhysicalDeviceSurfacePresentModesKHR(g_vk.physical_device, g_vk.surface, &mode_count, modes);
     
-    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    VkPresentModeKHR desired_mode = g_vk.present_mode;
+    bool mode_available = false;
     for (uint32_t i = 0; i < mode_count; i++) {
-        if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
-            present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+        if (modes[i] == desired_mode) {
+            mode_available = true;
             break;
         }
     }
+    if (!mode_available) {
+        /* Fall back to FIFO which is guaranteed to be supported */
+        desired_mode = VK_PRESENT_MODE_FIFO_KHR;
+    }
     free(modes);
-    
+
     uint32_t image_count = caps.minImageCount + 1;
     if (caps.maxImageCount > 0 && image_count > caps.maxImageCount) {
         image_count = caps.maxImageCount;
     }
     g_vk.swap_image_count = image_count;
-    
+
     VkSwapchainCreateInfoKHR create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     create_info.surface = g_vk.surface;
@@ -383,7 +394,7 @@ static bool create_swapchain(void) {
     create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     create_info.preTransform = caps.currentTransform;
     create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    create_info.presentMode = present_mode;
+    create_info.presentMode = desired_mode;
     create_info.clipped = VK_TRUE;
     
     if (vkCreateSwapchainKHR(g_vk.device, &create_info, NULL, &g_vk.swapchain) != VK_SUCCESS) {
@@ -702,6 +713,7 @@ void renderer_init(int width, int height) {
     create_surface();
     find_queue_families();
     create_device();
+    g_vk.present_mode = VK_PRESENT_MODE_FIFO_KHR;
     create_swapchain();
     create_swap_image_views();
     create_depth_buffer();
@@ -789,18 +801,22 @@ void renderer_clear(float r, float g, float b, float a) {
         recreate_swapchain();
     }
 
-    /* Wait for previous frame */
-    vkWaitForFences(g_vk.device, 1, &g_vk.in_flight_fences[g_vk.current_frame], VK_TRUE, UINT64_MAX);
+    /* Wait for previous frame with timeout to avoid indefinite hangs */
+    VkResult fence_result = vkWaitForFences(g_vk.device, 1, &g_vk.in_flight_fences[g_vk.current_frame], VK_TRUE, FENCE_TIMEOUT_NS);
+    if (fence_result == VK_TIMEOUT) {
+        fprintf(stderr, "Warning: fence wait timed out, recreating swapchain\n");
+        recreate_swapchain();
+    }
 
-    /* Acquire next image */
-    VkResult result = vkAcquireNextImageKHR(g_vk.device, g_vk.swapchain, UINT64_MAX,
+    /* Acquire next image with timeout */
+    VkResult result = vkAcquireNextImageKHR(g_vk.device, g_vk.swapchain, FENCE_TIMEOUT_NS,
                                             g_vk.image_avail_sems[g_vk.current_frame], VK_NULL_HANDLE,
                                             &g_vk.image_index);
-    
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || result == VK_TIMEOUT) {
         if (recreate_swapchain()) {
             /* Try to acquire again after recreation */
-            result = vkAcquireNextImageKHR(g_vk.device, g_vk.swapchain, UINT64_MAX,
+            result = vkAcquireNextImageKHR(g_vk.device, g_vk.swapchain, FENCE_TIMEOUT_NS,
                                            g_vk.image_avail_sems[g_vk.current_frame], VK_NULL_HANDLE,
                                            &g_vk.image_index);
         }
@@ -867,7 +883,14 @@ void renderer_swap(void) {
     submit_info.pSignalSemaphores = &g_vk.render_done_sems[g_vk.current_frame];
     
     vkResetFences(g_vk.device, 1, &g_vk.in_flight_fences[g_vk.current_frame]);
-    vkQueueSubmit(g_vk.graphics_queue, 1, &submit_info, g_vk.in_flight_fences[g_vk.current_frame]);
+    VkResult submit_result = vkQueueSubmit(g_vk.graphics_queue, 1, &submit_info, g_vk.in_flight_fences[g_vk.current_frame]);
+    if (submit_result == VK_ERROR_DEVICE_LOST) {
+        fprintf(stderr, "Error: VK_ERROR_DEVICE_LOST during submit, attempting recovery\n");
+        recreate_swapchain();
+        g_active_cmd = VK_NULL_HANDLE;
+        g_frame_started = false;
+        return;
+    }
     
     /* Present */
     VkPresentInfoKHR present_info = {0};
@@ -879,8 +902,11 @@ void renderer_swap(void) {
     present_info.pImageIndices = &g_vk.image_index;
     
     VkResult result = vkQueuePresentKHR(g_vk.present_queue, &present_info);
-    
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || g_vk.framebuffer_resized) {
+
+    if (result == VK_ERROR_DEVICE_LOST) {
+        fprintf(stderr, "Error: VK_ERROR_DEVICE_LOST during present, attempting recovery\n");
+        recreate_swapchain();
+    } else if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || g_vk.framebuffer_resized) {
         g_vk.framebuffer_resized = false;
         recreate_swapchain();
     }
@@ -891,7 +917,14 @@ void renderer_swap(void) {
 }
 
 void renderer_swap_interval(int interval) {
-    (void)interval;
+    VkPresentModeKHR new_mode = (interval == 0)
+        ? VK_PRESENT_MODE_MAILBOX_KHR
+        : VK_PRESENT_MODE_FIFO_KHR;
+
+    if (g_vk.present_mode == new_mode) return;
+
+    g_vk.present_mode = new_mode;
+    recreate_swapchain();
 }
 
 void renderer_clear_depth(void) {
@@ -1143,8 +1176,11 @@ static void get_pipeline_config(const char *vert_path, const char *frag_path, Pi
         cfg->vformat = VERTEX_FORMAT_SKYBOX;
         cfg->depth_write_enable = VK_FALSE;
         cfg->depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL; /* For xyww depth trick */
+        cfg->cull_mode = VK_CULL_MODE_NONE; /* Disable culling - cube has mixed winding, depth test handles visibility */
         cfg->has_texture = false;
         cfg->push_constant_size = 128;
+    } else if (strstr(vert_path, "basic")) {
+        cfg->cull_mode = VK_CULL_MODE_NONE; /* Disable culling to match OpenGL behavior */
     } else if (strstr(vert_path, "outline")) {
         cfg->vformat = VERTEX_FORMAT_OUTLINE;
         cfg->topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
@@ -1163,6 +1199,7 @@ static void get_pipeline_config(const char *vert_path, const char *frag_path, Pi
         cfg->push_constant_size = 8; /* uScreenSize vec2 */
     } else if (strstr(vert_path, "hud")) {
         cfg->vformat = VERTEX_FORMAT_HUD;
+        cfg->topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
         cfg->depth_test_enable = VK_FALSE;
         cfg->depth_write_enable = VK_FALSE;
         cfg->cull_mode = VK_CULL_MODE_NONE;
@@ -1262,8 +1299,8 @@ static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
             break;
 
         case VERTEX_FORMAT_UI:
-            /* UI: pos2, uv2, color4 - stride=32 */
-            binding.stride = 32;
+            /* UI: pos2, uv2, color4 - stride=20 */
+            binding.stride = 20;
 
             /* Location 0: aPos (vec2) */
             attrs[0].location = 0;
@@ -1277,10 +1314,10 @@ static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
             attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
             attrs[1].offset = 8;
 
-            /* Location 2: aColor (vec4) */
+            /* Location 2: aColor (u8 x 4) */
             attrs[2].location = 2;
             attrs[2].binding = 0;
-            attrs[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            attrs[2].format = VK_FORMAT_R8G8B8A8_UNORM;
             attrs[2].offset = 16;
 
             attr_count = 3;
@@ -1310,7 +1347,7 @@ static VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
     raster.rasterizerDiscardEnable = VK_FALSE;
     raster.polygonMode = VK_POLYGON_MODE_FILL;
     raster.cullMode = cfg->cull_mode;
-    raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     raster.depthBiasEnable = cfg->depth_bias_enable;
     raster.lineWidth = 1.0f;
 
@@ -1573,52 +1610,6 @@ static VkBuffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMem
     return buffer;
 }
 
-static void upload_buffer_data(VkBuffer buffer, VkDeviceMemory memory, size_t size, const void *data) {
-    /* Create staging buffer */
-    VkDeviceMemory staging_mem;
-    VkBuffer staging = create_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
-                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                      &staging_mem);
-    
-    /* Copy data to staging */
-    void *mapped;
-    vkMapMemory(g_vk.device, staging_mem, 0, size, 0, &mapped);
-    memcpy(mapped, data, size);
-    vkUnmapMemory(g_vk.device, staging_mem);
-    
-    /* Record copy command */
-    VkCommandBuffer cmd;
-    VkCommandBufferAllocateInfo alloc_info = {0};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = g_vk.cmd_pool;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
-    vkAllocateCommandBuffers(g_vk.device, &alloc_info, &cmd);
-    
-    VkCommandBufferBeginInfo begin_info = {0};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin_info);
-    
-    VkBufferCopy copy = {0};
-    copy.size = size;
-    vkCmdCopyBuffer(cmd, staging, buffer, 1, &copy);
-    
-    vkEndCommandBuffer(cmd);
-    
-    VkSubmitInfo submit_info = {0};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmd;
-    
-    vkQueueSubmit(g_vk.graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(g_vk.graphics_queue);
-    
-    vkFreeCommandBuffers(g_vk.device, g_vk.cmd_pool, 1, &cmd);
-    vkDestroyBuffer(g_vk.device, staging, NULL);
-    vkFreeMemory(g_vk.device, staging_mem, NULL);
-}
-
 /* ============================================================================
  * Public API: Buffers
  * ============================================================================ */
@@ -1663,6 +1654,62 @@ void renderer_bind_buffer(R_BufferTarget target, R_Buffer buffer) {
             g_vk.vao_buffers[g_current_vao] = vk_buffer;
         }
     }
+}
+
+static void copy_to_buffer(VkBuffer dst, VkDeviceSize dst_offset, VkDeviceSize size, const void *data) {
+    VkDeviceMemory staging_mem;
+    VkBuffer staging = create_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                      &staging_mem);
+
+    void *mapped;
+    vkMapMemory(g_vk.device, staging_mem, 0, size, 0, &mapped);
+    memcpy(mapped, data, size);
+    vkUnmapMemory(g_vk.device, staging_mem);
+
+    if (g_active_cmd != VK_NULL_HANDLE) {
+        /* Inside a frame: record copy into current command buffer (async, no stall) */
+        VkBufferCopy copy = {0};
+        copy.srcOffset = 0;
+        copy.dstOffset = dst_offset;
+        copy.size = size;
+        vkCmdCopyBuffer(g_active_cmd, staging, dst, 1, &copy);
+    } else {
+        /* Init time: one-time command buffer + submit + wait */
+        VkCommandBuffer cmd;
+        VkCommandBufferAllocateInfo alloc_info = {0};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.commandPool = g_vk.cmd_pool;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandBufferCount = 1;
+        vkAllocateCommandBuffers(g_vk.device, &alloc_info, &cmd);
+
+        VkCommandBufferBeginInfo begin_info = {0};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &begin_info);
+
+        VkBufferCopy copy = {0};
+        copy.srcOffset = 0;
+        copy.dstOffset = dst_offset;
+        copy.size = size;
+        vkCmdCopyBuffer(cmd, staging, dst, 1, &copy);
+
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submit_info = {0};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &cmd;
+
+        vkQueueSubmit(g_vk.graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        vkQueueWaitIdle(g_vk.graphics_queue);
+
+        vkFreeCommandBuffers(g_vk.device, g_vk.cmd_pool, 1, &cmd);
+    }
+
+    vkDestroyBuffer(g_vk.device, staging, NULL);
+    vkFreeMemory(g_vk.device, staging_mem, NULL);
 }
 
 void renderer_buffer_data(R_BufferTarget target, size_t size, const void *data, R_Usage usage) {
@@ -1712,15 +1759,27 @@ void renderer_buffer_data(R_BufferTarget target, size_t size, const void *data, 
     else if (target == R_BUF_SHADER_STORAGE) usage_flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     else if (target == R_BUF_DRAW_INDIRECT) usage_flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     
-    /* Create new buffer */
-    g_vk.buffers[buffer_handle] = create_buffer(size, usage_flags | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                                 &g_vk.buffer_memories[buffer_handle]);
+    /* Large buffers -> DEVICE_LOCAL (GPU memory, plentiful). Small buffers -> HOST_VISIBLE (direct map). */
+    VkMemoryPropertyFlags mem_flags = (size > (size_t)1024 * 1024)
+        ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        : VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+    g_vk.buffers[buffer_handle] = create_buffer(size, usage_flags, mem_flags, &g_vk.buffer_memories[buffer_handle]);
     g_vk.buffer_sizes[buffer_handle] = size;
-    
+
     /* Upload data */
-    if (data) {
-        upload_buffer_data(g_vk.buffers[buffer_handle], g_vk.buffer_memories[buffer_handle], size, data);
+    if (data && size > 0) {
+        if (mem_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            void *mapped;
+            VkResult result = vkMapMemory(g_vk.device, g_vk.buffer_memories[buffer_handle], 0, size, 0, &mapped);
+            if (result == VK_SUCCESS) {
+                memcpy(mapped, data, size);
+                vkUnmapMemory(g_vk.device, g_vk.buffer_memories[buffer_handle]);
+            }
+        } else {
+            /* DEVICE_LOCAL: staging buffer + copy command */
+            copy_to_buffer(g_vk.buffers[buffer_handle], 0, size, data);
+        }
     }
     
     /* Update bound buffer reference */
@@ -1741,10 +1800,33 @@ void renderer_buffer_data(R_BufferTarget target, size_t size, const void *data, 
 
 void renderer_buffer_sub_data(R_BufferTarget target, size_t offset, size_t size, const void *data) {
     (void)target;
-    (void)offset;
-    (void)size;
-    (void)data;
-    /* TODO: Implement sub-data upload */
+    if (!data || size == 0) return;
+
+    /* Find the buffer handle from the bound buffer */
+    VkBuffer bound_buffer = (target == R_BUF_ELEMENT) ? g_vk.bound_index_buffer : g_vk.bound_vbo;
+    if (bound_buffer == VK_NULL_HANDLE) return;
+
+    /* Find buffer handle index */
+    R_Buffer buffer_handle = R_INVALID_HANDLE;
+    for (uint32_t i = 0; i < g_vk.buffer_count; i++) {
+        if (g_vk.buffers[i] == bound_buffer) {
+            buffer_handle = i;
+            break;
+        }
+    }
+    if (buffer_handle == R_INVALID_HANDLE || buffer_handle >= g_vk.buffer_count) return;
+    if (offset + size > g_vk.buffer_sizes[buffer_handle]) return;
+
+    /* Try direct mapping first (works for host-visible buffers) */
+    void *mapped;
+    VkResult result = vkMapMemory(g_vk.device, g_vk.buffer_memories[buffer_handle], 0, VK_WHOLE_SIZE, 0, &mapped);
+    if (result == VK_SUCCESS) {
+        memcpy((char *)mapped + offset, data, size);
+        vkUnmapMemory(g_vk.device, g_vk.buffer_memories[buffer_handle]);
+    } else {
+        /* DEVICE_LOCAL: use staging buffer + copy command */
+        copy_to_buffer(g_vk.buffers[buffer_handle], offset, size, data);
+    }
 }
 
 void renderer_get_buffer_sub_data(R_BufferTarget target, size_t offset, size_t size, void *data) {
@@ -2201,13 +2283,13 @@ void renderer_draw_arrays(R_Primitive primitive, int first, int count) {
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(g_active_cmd, 0, 1, &vbo, &offset);
     }
-    
-    /* Set viewport - Vulkan native (no Y-flip) */
+
+    /* Set viewport - Y-flip for OpenGL compatibility */
     VkViewport viewport = {0};
     viewport.x = 0;
-    viewport.y = 0;
+    viewport.y = (float)g_vk.swap_extent.height;
     viewport.width = (float)g_vk.swap_extent.width;
-    viewport.height = (float)g_vk.swap_extent.height;
+    viewport.height = -(float)g_vk.swap_extent.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(g_active_cmd, 0, 1, &viewport);
@@ -2269,12 +2351,12 @@ void renderer_draw_elements(R_Primitive primitive, int count, int offset) {
     /* Bind index buffer */
     vkCmdBindIndexBuffer(g_active_cmd, g_vk.bound_index_buffer, 0, VK_INDEX_TYPE_UINT16);
 
-    /* Set viewport - Vulkan native (no Y-flip) */
+    /* Set viewport - Y-flip for OpenGL compatibility */
     VkViewport viewport = {0};
     viewport.x = 0;
-    viewport.y = 0;
+    viewport.y = (float)g_vk.swap_extent.height;
     viewport.width = (float)g_vk.swap_extent.width;
-    viewport.height = (float)g_vk.swap_extent.height;
+    viewport.height = -(float)g_vk.swap_extent.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(g_active_cmd, 0, 1, &viewport);
@@ -2296,7 +2378,7 @@ void renderer_draw_elements(R_Primitive primitive, int count, int offset) {
 
     /* Draw indexed */
     (void)primitive; /* Pipeline already has the topology set */
-    vkCmdDrawIndexed(g_active_cmd, count, 1, 0, offset, 0);
+    vkCmdDrawIndexed(g_active_cmd, count, 1, offset, 0, 0);
 }
 
 void renderer_draw_arrays_indirect(void) {

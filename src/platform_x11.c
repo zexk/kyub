@@ -1,6 +1,5 @@
 #include "platform_x11.h"
 #include <X11/Xutil.h>
-#include <stdio.h>
 #include <string.h>
 
 Display *g_x11_display;
@@ -71,6 +70,7 @@ int platform_x11_init(int width, int height) {
 
     XStoreName(g_x11_display, g_x11_window, "Kyub");
     XMapWindow(g_x11_display, g_x11_window);
+    XRaiseWindow(g_x11_display, g_x11_window);
 
     g_x11_wm_delete_window = XInternAtom(g_x11_display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(g_x11_display, g_x11_window, &g_x11_wm_delete_window, 1);
@@ -99,7 +99,7 @@ bool platform_x11_poll_event(Event *event) {
     memset(event, 0, sizeof(Event));
     event->type = EVENT_NONE;
 
-if (ev.type == KeyPress) {
+    if (ev.type == KeyPress) {
         KeySym keysym = XLookupKeysym(&ev.xkey, 0);
         int key = keysym_to_key(keysym);
         event->type = PLATFORM_EVENT_KEY_DOWN;
@@ -162,7 +162,7 @@ void platform_x11_hide_cursor(bool hidden) {
 
 void platform_x11_grab_mouse(bool grabbed) {
     if (grabbed) {
-        XGrabPointer(g_x11_display, g_x11_window, True, PointerMotionMask, GrabModeAsync, GrabModeAsync, g_x11_window, None, CurrentTime);
+        XGrabPointer(g_x11_display, g_x11_window, True, PointerMotionMask | ButtonPressMask | ButtonReleaseMask, GrabModeAsync, GrabModeAsync, g_x11_window, None, CurrentTime);
     } else {
         XUngrabPointer(g_x11_display, CurrentTime);
     }
@@ -170,6 +170,7 @@ void platform_x11_grab_mouse(bool grabbed) {
 
 void platform_x11_warp_mouse(int x, int y) {
     XWarpPointer(g_x11_display, None, g_x11_window, 0, 0, 0, 0, x, y);
+    XFlush(g_x11_display);
 }
 
 Display* platform_x11_get_display(void) {

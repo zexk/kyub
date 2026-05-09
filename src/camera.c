@@ -1,5 +1,6 @@
 #include "camera.h"
 #include "input.h"
+#include "logger.h"
 #include <math.h>
 
 static bool position_is_safe(World *world, vec3 pos) {
@@ -47,6 +48,21 @@ static void update_vectors(Camera *cam) {
 }
 
 void camera_update(Camera *cam, float dt, World *world) {
+#ifdef ENABLE_LOGGER
+    static bool prev_w = false, prev_a = false, prev_s = false, prev_d = false;
+    bool curr_w = g_input.keys['w'];
+    bool curr_a = g_input.keys['a'];
+    bool curr_s = g_input.keys['s'];
+    bool curr_d = g_input.keys['d'];
+    if (curr_w != prev_w || curr_a != prev_a || curr_s != prev_s || curr_d != prev_d) {
+        LOG_DEBUG(CAT_INPUT, "camera_update key change: w=%d a=%d s=%d d=%d", curr_w, curr_a, curr_s, curr_d);
+        prev_w = curr_w; prev_a = curr_a; prev_s = curr_s; prev_d = curr_d;
+    }
+    if (curr_w || curr_a || curr_s || curr_d) {
+        LOG_DEBUG(CAT_INPUT, "camera_update active: w=%d a=%d s=%d d=%d", curr_w, curr_a, curr_s, curr_d);
+    }
+#endif
+
     // Rotation
     cam->yaw += g_input.mouse_dx * cam->sensitivity;
     cam->pitch -= g_input.mouse_dy * cam->sensitivity;

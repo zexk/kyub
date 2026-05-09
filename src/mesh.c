@@ -185,7 +185,8 @@ void mesh_upload(Mesh *mesh) {
     if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
     renderer_bind_vao(mesh->vao);
     renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
-    renderer_buffer_data(R_BUF_ARRAY, mesh->vertex_count * sizeof(Vertex), mesh->vertices, R_USAGE_STATIC);
+    /* Upload vertex data without recreating buffer (avoid GPU stall) */
+    renderer_buffer_sub_data(R_BUF_ARRAY, 0, mesh->vertex_count * sizeof(Vertex), mesh->vertices);
     renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 0);
     renderer_enable_attrib(0);
     renderer_attrib_pointer(1, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 4 * sizeof(float));
@@ -197,7 +198,7 @@ void mesh_upload(Mesh *mesh) {
     renderer_attrib_pointer(4, 2, R_TYPE_FLOAT, false, sizeof(Vertex), 12 * sizeof(float));
     renderer_enable_attrib(4);
     renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
-    renderer_bind_vao(mesh->vao);
+    renderer_bind_vao(R_INVALID_HANDLE); /* Unbind VAO to avoid stale state */
 }
 
 void mesh_prepare_gpu(Mesh *mesh) {

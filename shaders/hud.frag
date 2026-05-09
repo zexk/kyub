@@ -3,8 +3,8 @@
 layout(location = 0) out vec4 FragColor;
 
 layout(push_constant) uniform PushConstants {
-    vec3 uColor;
-    float uAlpha;
+    layout(offset = 192) vec3 uColor;
+    layout(offset = 208) float uAlpha;
 } pc;
 
 void main() {
