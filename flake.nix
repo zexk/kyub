@@ -74,7 +74,7 @@
           default = pkgs.mkShell {
             inherit nativeBuildInputs;
             buildInputs = openglBuildInputs;
-            packages = with pkgs; [ gdb stb clang-tools shaderc vulkan-loader vulkan-headers ];
+            packages = with pkgs; [ gdb stb clang-tools shaderc vulkan-loader vulkan-headers xdotool ];
             
             shellHook = ''
               echo "Voxel Engine development environment (OpenGL)"
@@ -85,7 +85,7 @@
           vulkan = pkgs.mkShell {
             inherit nativeBuildInputs;
             buildInputs = vulkanBuildInputs;
-            packages = with pkgs; [ gdb stb clang-tools shaderc ];
+            packages = with pkgs; [ gdb stb clang-tools shaderc xdotool ];
             
             shellHook = ''
               echo "Voxel Engine development environment (Vulkan)"

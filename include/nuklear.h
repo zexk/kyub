@@ -982,6 +982,28 @@ NK_API void nk_input_unicode(struct nk_context*, nk_rune);
  */
 NK_API void nk_input_end(struct nk_context*);
 
+/**
+ * \brief Synchronizes nuklear input state from an external platform state.
+ *
+ * \details
+ * Single-call replacement for `nk_input_begin` / `nk_input_motion` /
+ * `nk_input_key` / `nk_input_button` / `nk_input_end`.  Must be called
+ * once per frame with the current key/button/mouse state.
+ *
+ * ```c
+ * void nk_input_sync(struct nk_context *ctx, int mouse_x, int mouse_y,
+ *     int mouse_l, int mouse_r, int mouse_m,
+ *     int key_shift, int key_ctrl, int key_alt,
+ *     int key_enter, int key_tab, int key_backspace, int key_del,
+ *     int key_left, int key_right, int key_up, int key_down);
+ * ```
+ */
+NK_API void nk_input_sync(struct nk_context *ctx, int mouse_x, int mouse_y,
+    int mouse_l, int mouse_r, int mouse_m,
+    int key_shift, int key_ctrl, int key_alt,
+    int key_enter, int key_tab, int key_backspace, int key_del,
+    int key_left, int key_right, int key_up, int key_down);
+
 /* =============================================================================
  *
  *                                  DRAWING
@@ -18328,6 +18350,33 @@ nk_input_button(struct nk_context *ctx, enum nk_buttons id, int x, int y, nk_boo
         in->mouse.down_pos.y = btn->clicked_pos.y;
     }
 #endif
+}
+NK_API void
+nk_input_sync(struct nk_context *ctx, int mouse_x, int mouse_y,
+    int mouse_l, int mouse_r, int mouse_m,
+    int key_shift, int key_ctrl, int key_alt,
+    int key_enter, int key_tab, int key_backspace, int key_del,
+    int key_left, int key_right, int key_up, int key_down)
+{
+    NK_ASSERT(ctx);
+    if (!ctx) return;
+    nk_input_begin(ctx);
+    nk_input_motion(ctx, mouse_x, mouse_y);
+    nk_input_button(ctx, NK_BUTTON_LEFT,  mouse_x, mouse_y, mouse_l);
+    nk_input_button(ctx, NK_BUTTON_RIGHT, mouse_x, mouse_y, mouse_r);
+    nk_input_button(ctx, NK_BUTTON_MIDDLE, mouse_x, mouse_y, mouse_m);
+    nk_input_key(ctx, NK_KEY_SHIFT,     key_shift);
+    nk_input_key(ctx, NK_KEY_CTRL,      key_ctrl);
+    nk_input_key(ctx, NK_KEY_ALT,       key_alt);
+    nk_input_key(ctx, NK_KEY_ENTER,     key_enter);
+    nk_input_key(ctx, NK_KEY_TAB,       key_tab);
+    nk_input_key(ctx, NK_KEY_BACKSPACE, key_backspace);
+    nk_input_key(ctx, NK_KEY_DEL,       key_del);
+    nk_input_key(ctx, NK_KEY_LEFT,      key_left);
+    nk_input_key(ctx, NK_KEY_RIGHT,     key_right);
+    nk_input_key(ctx, NK_KEY_UP,        key_up);
+    nk_input_key(ctx, NK_KEY_DOWN,      key_down);
+    nk_input_end(ctx);
 }
 NK_API void
 nk_input_scroll(struct nk_context *ctx, struct nk_vec2 val)

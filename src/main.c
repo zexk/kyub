@@ -142,6 +142,27 @@ R_VAO skybox_vao = renderer_create_vao();
     camera_init(&camera);
     input_init();
 
+    /* Find safe spawn position - move camera above terrain */
+    /* First update world to load chunks at initial position */
+    world_update(&world, camera.pos);
+    /* Wait a few frames for chunks to load */
+    for (int i = 0; i < 10; i++) {
+        world_update(&world, camera.pos);
+    }
+    /* Find ground height at spawn position */
+    int spawn_x = (int)floorf(camera.pos.x);
+    int spawn_z = (int)floorf(camera.pos.z);
+    int ground_y = 0;
+    for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
+        if (world_is_solid(&world, spawn_x, y, spawn_z)) {
+            ground_y = y;
+            break;
+        }
+    }
+    /* Place camera 2 blocks above ground */
+    camera.pos.y = (float)(ground_y + 2) + PLAYER_EYES_HEIGHT;
+    LOG_INFO(CAT_PLATFORM, "Spawn position set to y=%.2f (ground at y=%d)", camera.pos.y, ground_y);
+
     UI ui;
     ui.render_distance = world.render_distance;
     ui_init(&ui, 800, 600);
@@ -165,91 +186,71 @@ R_VAO skybox_vao = renderer_create_vao();
         double dt = now - last_time;
         last_time = now;
 
-        nk_input_begin(&ui.ctx);
         Event event;
         while (platform_poll_event(&event)) {
-            if (paused) {
-                if (event.type == 1) {  // EVENT_KEY_DOWN
-                    if (event.key.key == 'p') {
-                        ui.visible = !ui.visible;
-                    }
-                    if (event.key.key == 't') {
-                        paused = false;
-                        platform_hide_cursor(true);
-                        platform_grab_mouse(true);
-                    }
-                    if (event.key.key == 0x1B) {
-                        paused = false;
-                        platform_hide_cursor(true);
-                        platform_grab_mouse(true);
-                    }
-                    ui_handle_key(&ui, event.key.key, true);
-                } else if (event.type == 2) {  // EVENT_KEY_UP
-                    ui_handle_key(&ui, event.key.key, false);
-} else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
-                    ui_handle_mouse(&ui, event.mouse_button.x, event.mouse_button.y);
-                    input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
-                } else if (event.type == 4) {  // EVENT_MOUSE_MOTION
-                    if (ui_is_visible(&ui)) {
-                        ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y);
-                    }
-                } else if (event.type == 5) {  // EVENT_RESIZE
-                    win_width = event.resize.width;
-                    win_height = event.resize.height;
-                    renderer_viewport(0, 0, win_width, win_height);
+            if (event.type == 1) {  // EVENT_KEY_DOWN
+                input_set_key(event.key.key, true);
+                if (event.key.key == 0x10) input_set_shift(true);
+                if (event.key.key == 'p') ui.visible = !ui.visible;
+                if (event.key.key == 't') {
+                    paused = !paused;
+                    platform_hide_cursor(!paused);
+                    platform_grab_mouse(!paused);
                 }
-            } else {
-                if (event.type == 1) {  // EVENT_KEY_DOWN
-                    if (event.key.key == 'w') input_set_key('w', true);
-                    if (event.key.key == 's') input_set_key('s', true);
-                    if (event.key.key == 'a') input_set_key('a', true);
-                    if (event.key.key == 'd') input_set_key('d', true);
-                    if (event.key.key == ' ') input_set_key(' ', true);
-                    if (event.key.key == 0x10) input_set_shift(true);
-                    if (event.key.key == 'p') {
-                        ui.visible = !ui.visible;
-                    }
-                    if (event.key.key == 't') {
-                        paused = true;
-                        platform_grab_mouse(false);
-                        platform_hide_cursor(false);
-                    }
-                    if (event.key.key == 0x1B) {
-                        paused = true;
-                        platform_grab_mouse(false);
-                        platform_hide_cursor(false);
-                    }
-                } else if (event.type == 2) {  // EVENT_KEY_UP
-                    if (event.key.key == 'w') input_set_key('w', false);
-                    if (event.key.key == 's') input_set_key('s', false);
-                    if (event.key.key == 'a') input_set_key('a', false);
-                    if (event.key.key == 'd') input_set_key('d', false);
-                    if (event.key.key == ' ') input_set_key(' ', false);
-                    if (event.key.key == 0x10) input_set_shift(false);
-                } else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
-                    input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
-                } else if (event.type == 4) {  // EVENT_MOUSE_MOTION
+                if (event.key.key == 0x1B) {
+                    paused = !paused;
+                    platform_hide_cursor(!paused);
+                    platform_grab_mouse(!paused);
+                }
+            } else if (event.type == 2) {  // EVENT_KEY_UP
+                input_set_key(event.key.key, false);
+                if (event.key.key == 0x10) input_set_shift(false);
+            } else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
+                input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
+            } else if (event.type == 4) {  // EVENT_MOUSE_MOTION
+                input_set_mouse_pos(event.mouse_motion.x, event.mouse_motion.y);
+                if (!paused) {
                     int dx = event.mouse_motion.x - win_width / 2;
                     int dy = event.mouse_motion.y - win_height / 2;
                     if (dx != 0 || dy != 0) {
                         input_set_mouse_delta((float)dx, (float)dy);
                         platform_warp_mouse(win_width / 2, win_height / 2);
                     }
-                    if (ui_is_visible(&ui)) {
-                        ui_handle_mouse(&ui, event.mouse_motion.x, event.mouse_motion.y);
-                    }
-                } else if (event.type == 5) {  // EVENT_RESIZE
-                    win_width = event.resize.width;
-                    win_height = event.resize.height;
-                    renderer_viewport(0, 0, win_width, win_height);
-                } else if (event.type == 6) {  // EVENT_QUIT
-                    running = false;
                 }
+            } else if (event.type == 5) {  // EVENT_RESIZE
+                win_width = event.resize.width;
+                win_height = event.resize.height;
+                renderer_viewport(0, 0, win_width, win_height);
+            } else if (event.type == 6) {  // EVENT_QUIT
+                running = false;
             }
         }
 
-        ui_poll_mouse(&ui);
-        nk_input_end(&ui.ctx);
+#ifdef ENABLE_LOGGER
+        if (g_input.keys['w'] || g_input.keys['a'] || g_input.keys['s'] || g_input.keys['d']) {
+            LOG_DEBUG(CAT_INPUT, "main post-events: w=%d a=%d s=%d d=%d",
+                g_input.keys['w'], g_input.keys['a'], g_input.keys['s'], g_input.keys['d']);
+        }
+        double timing_start = get_time_s();
+        double frame_start = timing_start;
+#define LOG_TIMING(name) do { \
+    double _t = get_time_s(); \
+    double _dt = _t - timing_start; \
+    if (_dt > 0.001) LOG_DEBUG(CAT_PLATFORM, "TIMING %-20s %.3f ms", name, _dt * 1000.0); \
+    timing_start = _t; \
+} while(0)
+#else
+#define LOG_TIMING(name) ((void)0)
+        double timing_start = 0;
+        double frame_start = 0;
+#endif
+
+        nk_input_sync(&ui.ctx, g_input.mouse_x, g_input.mouse_y,
+            g_input.mouse_left, g_input.mouse_right, 0,
+            g_input.shift, g_input.keys[0x11], g_input.keys[0x12],
+            g_input.keys[0x0D], g_input.keys[0x09], g_input.keys[0x08], g_input.keys[0x7F],
+            g_input.keys[0x25], g_input.keys[0x27], g_input.keys[0x26], g_input.keys[0x28]);
+        LOG_TIMING("nk_input_sync");
 
         if (paused) {
             static bool prev_pause_click = false;
@@ -263,7 +264,7 @@ R_VAO skybox_vao = renderer_create_vao();
         }
 
         camera_update(&camera, dt, &world);
-        world_update(&world, camera.pos);
+        LOG_TIMING("camera_update");
 
         static float break_cooldown = 0.0f;
         static float place_cooldown = 0.0f;
@@ -333,6 +334,8 @@ R_VAO skybox_vao = renderer_create_vao();
             }
         }
 
+        LOG_TIMING("raycasts");
+
         // Block highlight raycast
         bool hl_found = false;
         int hl_x = 0, hl_y = 0, hl_z = 0;
@@ -353,6 +356,11 @@ R_VAO skybox_vao = renderer_create_vao();
         }
 
         renderer_clear(0.1f, 0.1f, 0.12f, 1.0f);
+        LOG_TIMING("renderer_clear");
+
+        /* Update world after fence wait to avoid GPU read/write race on buffers */
+        world_update(&world, camera.pos);
+        LOG_TIMING("world_update");
 
         renderer_use_program(shader_program);
         renderer_active_texture(0);
@@ -378,12 +386,8 @@ R_VAO skybox_vao = renderer_create_vao();
 
         for (int i = 0; i < world.capacity; i++) {
             if (world.chunks[i].active && frustum_intersects_box(&frustum, world.chunks[i].chunk->min, world.chunks[i].chunk->max)) {
-                /* Set model matrix per-chunk with chunk's world position */
-                mat4 model = mat4_translate((vec3){
-                    (float)(world.chunks[i].chunk->x * CHUNK_SIZE),
-                    0.0f,
-                    (float)(world.chunks[i].chunk->z * CHUNK_SIZE)
-                });
+                /* Model matrix is identity - vertices already contain world position */
+                mat4 model = mat4_identity();
                 renderer_uniform_mat4(model_loc, model.m);
                 renderer_bind_vao(world.chunks[i].mesh->vao);
 #if defined(ENABLE_COMPUTE) && !defined(RENDERER_VULKAN)
@@ -479,15 +483,27 @@ R_VAO skybox_vao = renderer_create_vao();
             last_fps_update = now;
         }
 
-        ui_render(&ui, win_width, win_height);
-
         world.render_distance = ui.render_distance;
 
         renderer_enable(R_CAP_DEPTH_TEST);
+        LOG_TIMING("rendering");
 
         renderer_swap();
+        LOG_TIMING("renderer_swap");
+
+        ui_render(&ui, win_width, win_height);
+        LOG_TIMING("ui_render");
 
         renderer_swap_interval(ui.fps_unlimited ? 0 : 1);
+        LOG_TIMING("swap_interval");
+
+#ifdef ENABLE_LOGGER
+        double frame_end = get_time_s();
+        double frame_dt = frame_end - frame_start;
+        if (frame_dt > 0.1) {
+            LOG_WARN(CAT_PLATFORM, "SLOW FRAME: %.3f ms", frame_dt * 1000.0);
+        }
+#endif
     }
 
     ui_shutdown(&ui);

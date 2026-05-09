@@ -8,6 +8,7 @@
 #define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_INCLUDE_FONT_BAKING
+#define NK_KEYSTATE_BASED_INPUT
 #include "nuklear.h"
 
 #include "math3d.h"
@@ -28,6 +29,7 @@ typedef struct {
     R_Buffer vbo;
     R_Buffer ebo;
     R_Texture font_tex;
+    R_Texture null_tex;
     bool initialized;
     bool visible;
     float fps;
@@ -44,9 +46,6 @@ void ui_init(UI *ui, int width, int height);
 void ui_shutdown(UI *ui);
 void ui_toggle(UI *ui);
 bool ui_is_visible(UI *ui);
-void ui_handle_mouse(UI *ui, int x, int y);
-void ui_poll_mouse(UI *ui);
-void ui_handle_key(UI *ui, int key, bool pressed);
 void ui_set_stats(UI *ui, float fps, int chunk_count, vec3 pos, vec3 dir, float yaw, float pitch);
 void ui_render(UI *ui, int width, int height);
 

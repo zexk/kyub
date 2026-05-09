@@ -2,17 +2,17 @@
 build/
 result
 
-# Direnv
-.direnv/
-
 # Nix
 result
 *.drv
+
+# Direnv
+.direnv/
 
 # Editor
 *.swp
 *.swo
 *~
 
-# State
+# assets
 state.png

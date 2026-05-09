@@ -65,13 +65,22 @@ void ui_init(UI *ui, int width, int height) {
     struct nk_font *font = nk_font_atlas_add_default(&ui->atlas, 18.0f, NULL);
     int w, h;
     const void *image = nk_font_atlas_bake(&ui->atlas, &w, &h, NK_FONT_ATLAS_RGBA32);
-    nk_font_atlas_end(&ui->atlas, (nk_handle){0}, NULL);
 
+    /* Create font texture before ending atlas so we can pass the handle */
     ui->font_tex = renderer_create_texture();
     renderer_bind_texture(R_TEX_2D, ui->font_tex);
     renderer_tex_image_2d(w, h, image);
     renderer_tex_param(R_TEX_2D, R_TEX_MIN_FILTER, R_TEX_LINEAR);
     renderer_tex_param(R_TEX_2D, R_TEX_MAG_FILTER, R_TEX_LINEAR);
+    renderer_bind_texture(R_TEX_2D, R_INVALID_HANDLE);
+
+    nk_font_atlas_end(&ui->atlas, nk_handle_id((int)ui->font_tex), NULL);
+
+    /* Create 1x1 white texture for null/fill draws */
+    unsigned char white_pixel[4] = {255, 255, 255, 255};
+    ui->null_tex = renderer_create_texture();
+    renderer_bind_texture(R_TEX_2D, ui->null_tex);
+    renderer_tex_image_2d(1, 1, white_pixel);
     renderer_bind_texture(R_TEX_2D, R_INVALID_HANDLE);
 
     if (font) {
@@ -84,6 +93,7 @@ void ui_init(UI *ui, int width, int height) {
 void ui_shutdown(UI *ui) {
     if (!ui->initialized) return;
     if (ui->font_tex != R_INVALID_HANDLE) renderer_destroy_texture(ui->font_tex);
+    if (ui->null_tex != R_INVALID_HANDLE) renderer_destroy_texture(ui->null_tex);
     nk_buffer_free(&ui->cmds);
     nk_buffer_free(&ui->vertices);
     nk_buffer_free(&ui->elements);
@@ -100,36 +110,6 @@ void ui_toggle(UI *ui) {
 
 bool ui_is_visible(UI *ui) {
     return ui->visible;
-}
-
-static int nk_key_from_key(int key) {
-    switch (key) {
-        case 0x26: return NK_KEY_UP;
-        case 0x28: return NK_KEY_DOWN;
-        case 0x25: return NK_KEY_LEFT;
-        case 0x27: return NK_KEY_RIGHT;
-        case 0x0D: return NK_KEY_ENTER;
-        case 0x09: return NK_KEY_TAB;
-        case 0x08: return NK_KEY_BACKSPACE;
-        default: return key;
-    }
-}
-
-void ui_handle_mouse(UI *ui, int x, int y) {
-    if (!ui->visible || !ui->initialized) return;
-    nk_input_motion(&ui->ctx, x, y);
-}
-
-void ui_handle_key(UI *ui, int key, bool pressed) {
-    if (!ui->visible || !ui->initialized) return;
-    int nk_key = nk_key_from_key(key);
-    nk_input_key(&ui->ctx, nk_key, pressed);
-}
-
-void ui_poll_mouse(UI *ui) {
-    if (!ui->visible || !ui->initialized) return;
-    nk_input_button(&ui->ctx, NK_BUTTON_LEFT, ui->ctx.input.mouse.pos.x, ui->ctx.input.mouse.pos.y, g_input.mouse_left);
-    nk_input_button(&ui->ctx, NK_BUTTON_RIGHT, ui->ctx.input.mouse.pos.x, ui->ctx.input.mouse.pos.y, g_input.mouse_right);
 }
 
 void ui_set_stats(UI *ui, float fps, int chunk_count, vec3 pos, vec3 dir, float yaw, float pitch) {
@@ -207,7 +187,7 @@ void ui_render(UI *ui, int width, int height) {
     config.circle_segment_count = 22;
     config.arc_segment_count = 22;
     config.curve_segment_count = 22;
-    config.tex_null.texture = (nk_handle){0};
+    config.tex_null.texture = nk_handle_id((int)ui->null_tex);
     config.tex_null.uv = (struct nk_vec2){0.0f, 0.0f};
     config.vertex_layout = vertex_layout;
     config.vertex_size = sizeof(struct ui_vertex);
@@ -229,9 +209,21 @@ void ui_render(UI *ui, int width, int height) {
     renderer_buffer_data(R_BUF_ELEMENT, ui->elements.needed, ui->elements.memory.ptr, R_USAGE_DYNAMIC);
 
     renderer_active_texture(0);
-    renderer_bind_texture(R_TEX_2D, ui->font_tex);
 
-    renderer_draw_elements(R_PRIM_TRIANGLES, ui->elements.needed / sizeof(nk_ushort), 0);
+    /* Iterate draw commands to bind correct texture per command */
+    const nk_ushort *base_offset = (const nk_ushort *)nk_buffer_memory_const(&ui->elements);
+    const nk_ushort *offset = base_offset;
+    const struct nk_draw_command *cmd;
+    nk_draw_foreach(cmd, &ui->ctx, &ui->cmds) {
+        if (!cmd->elem_count) continue;
+        R_Texture tex = ui->null_tex;
+        if (cmd->texture.id == (int)ui->font_tex)
+            tex = ui->font_tex;
+        renderer_bind_texture(R_TEX_2D, tex);
+        renderer_draw_elements(R_PRIM_TRIANGLES, cmd->elem_count,
+                               (int)(offset - base_offset));
+        offset += cmd->elem_count;
+    }
 
     nk_clear(&ui->ctx);
     nk_buffer_clear(&ui->cmds);
