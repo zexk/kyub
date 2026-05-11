@@ -4,16 +4,13 @@
 #include <math.h>
 
 static bool position_is_safe(World *world, vec3 pos) {
-    int head_y = (int)floorf(pos.y + (PLAYER_HEIGHT - PLAYER_EYES_HEIGHT));
-    int feet_y = (int)floorf(pos.y - PLAYER_EYES_HEIGHT);
-
     float hw = PLAYER_HALF_WIDTH;
     float min_x = pos.x - hw;
     float max_x = pos.x + hw;
     float min_z = pos.z - hw;
     float max_z = pos.z + hw;
 
-    for (int y = feet_y; y <= head_y; y++) {
+    for (int y = (int)(pos.y - PLAYER_EYES_HEIGHT); y <= (int)(pos.y - PLAYER_EYES_HEIGHT) + (int)PLAYER_HEIGHT + 1; y++) {
         int xi1 = (int)floorf(min_x);
         int xi2 = (int)floorf(max_x);
         int zi1 = (int)floorf(min_z);
@@ -23,6 +20,10 @@ static bool position_is_safe(World *world, vec3 pos) {
         if (world_is_solid(world, xi1, y, zi2)) return false;
         if (world_is_solid(world, xi2, y, zi1)) return false;
         if (world_is_solid(world, xi2, y, zi2)) return false;
+
+        float center_x = pos.x;
+        float center_z = pos.z;
+        if (world_is_solid(world, (int)floorf(center_x), y, (int)floorf(center_z))) return false;
     }
     return true;
 }
@@ -48,24 +49,29 @@ static void update_vectors(Camera *cam) {
 }
 
 void camera_update(Camera *cam, float dt, World *world) {
-#ifdef ENABLE_LOGGER
     static bool prev_w = false, prev_a = false, prev_s = false, prev_d = false;
-    bool curr_w = g_input.keys['w'];
-    bool curr_a = g_input.keys['a'];
-    bool curr_s = g_input.keys['s'];
-    bool curr_d = g_input.keys['d'];
+
+    bool keys_w = g_input.keys['w'];
+    bool keys_a = g_input.keys['a'];
+    bool keys_s = g_input.keys['s'];
+    bool keys_d = g_input.keys['d'];
+    bool key_space = g_input.keys[' '];
+    bool key_shift = g_input.shift;
+    float mouse_dx = (float)g_input.mouse_dx;
+    float mouse_dy = (float)g_input.mouse_dy;
+
+    bool curr_w = keys_w;
+    bool curr_a = keys_a;
+    bool curr_s = keys_s;
+    bool curr_d = keys_d;
     if (curr_w != prev_w || curr_a != prev_a || curr_s != prev_s || curr_d != prev_d) {
         LOG_DEBUG(CAT_INPUT, "camera_update key change: w=%d a=%d s=%d d=%d", curr_w, curr_a, curr_s, curr_d);
         prev_w = curr_w; prev_a = curr_a; prev_s = curr_s; prev_d = curr_d;
     }
-    if (curr_w || curr_a || curr_s || curr_d) {
-        LOG_DEBUG(CAT_INPUT, "camera_update active: w=%d a=%d s=%d d=%d", curr_w, curr_a, curr_s, curr_d);
-    }
-#endif
 
     // Rotation
-    cam->yaw += g_input.mouse_dx * cam->sensitivity;
-    cam->pitch -= g_input.mouse_dy * cam->sensitivity;
+    cam->yaw += mouse_dx * cam->sensitivity;
+    cam->pitch -= mouse_dy * cam->sensitivity;
 
     if (cam->pitch > 89.0f) cam->pitch = 89.0f;
     if (cam->pitch < -89.0f) cam->pitch = -89.0f;
@@ -76,15 +82,15 @@ void camera_update(Camera *cam, float dt, World *world) {
 
     // Movement (horizontal only - vertical handled by physics)
     float velocity = cam->speed * dt;
-    if (g_input.shift) velocity *= 6.0f;
+    if (key_shift) velocity *= 6.0f;
 
     vec3 move_dir = {0};
-    if (g_input.keys['w']) move_dir = vec3_add(move_dir, cam->front);
-    if (g_input.keys['s']) move_dir = vec3_sub(move_dir, cam->front);
+    if (keys_w) move_dir = vec3_add(move_dir, cam->front);
+    if (keys_s) move_dir = vec3_sub(move_dir, cam->front);
 
     vec3 right = vec3_normalize(vec3_cross(cam->front, cam->up));
-    if (g_input.keys['a']) move_dir = vec3_sub(move_dir, right);
-    if (g_input.keys['d']) move_dir = vec3_add(move_dir, right);
+    if (keys_a) move_dir = vec3_sub(move_dir, right);
+    if (keys_d) move_dir = vec3_add(move_dir, right);
 
     // Apply horizontal movement with collision
     if (velocity > max_step) velocity = max_step;
@@ -147,12 +153,11 @@ void camera_update(Camera *cam, float dt, World *world) {
     }
 
     // Jump
-    if (g_input.keys[' '] && cam->grounded) {
+    if (key_space && cam->grounded) {
         cam->velocity.y = JUMP_VELOCITY;
         cam->grounded = false;
     }
 
-    // Reset mouse delta after processing
     g_input.mouse_dx = 0;
     g_input.mouse_dy = 0;
 }

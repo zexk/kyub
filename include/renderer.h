@@ -5,6 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define R_MAX_FRAMES_IN_FLIGHT 2
+#define R_MAX_PIPELINES 16
+#define R_MAX_BUFFERS 256
+#define R_MAX_TEXTURES 256
+#define R_MAX_VAO 256
+#define R_FENCE_TIMEOUT_NS 1000000000ULL
+#define R_PUSH_CONSTANT_SIZE 256
+
 /* Opaque handle types - uint64_t to accommodate both GL (32-bit) and Vulkan (64-bit) */
 typedef uint64_t R_Program;
 typedef uint64_t R_Buffer;
@@ -104,7 +112,7 @@ typedef enum {
  * Init / Lifecycle
  * ============================================================================ */
 
-void renderer_init(int width, int height);
+bool renderer_init(int width, int height);
 void renderer_shutdown(void);
 void renderer_swap(void);
 void renderer_swap_interval(int interval);

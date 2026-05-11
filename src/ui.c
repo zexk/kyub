@@ -38,7 +38,7 @@ void ui_init(UI *ui, int width, int height) {
     ui->selected_block = BLOCK_STONE;
     ui->visible = true;
 
-    ui->shader = renderer_create_program("shaders/ui.vert", "shaders/ui.frag");
+    ui->shader = renderer_create_program("build/shaders/ui", "build/shaders/ui");
     if (ui->shader == R_INVALID_HANDLE) {
         LOG_ERROR(CAT_UI, "Failed to create UI shader");
         return;
