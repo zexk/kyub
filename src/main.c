@@ -1,16 +1,17 @@
 #define _POSIX_C_SOURCE 199309L
 #define NK_IMPLEMENTATION
 #include "common.h"
-#include "renderer.h"
+#include "renderer/renderer.h"
 #include "voxel.h"
 #include "mesh.h"
 #include "math3d.h"
 #include "camera.h"
-#include "input.h"
+#include "platform/game_input.h"
+#include "platform/nk_platform.h"
 #include "world.h"
 #include "texture.h"
 #include "ui.h"
-#include "platform.h"
+#include "platform/platform.h"
 #include "logger.h"
 #include <time.h>
 #include <unistd.h>
@@ -19,6 +20,15 @@
 #include <execinfo.h>
 #include <signal.h>
 #include <stdlib.h>
+
+#define WINDOW_WIDTH  800
+#define WINDOW_HEIGHT 600
+#define RAYCAST_MAX_DISTANCE 8.0f
+#define RAYCAST_STEP 0.05f
+#define COOLDOWN_TIME 0.25f
+#define FOV_DEGREES 45.0f
+#define NEAR_PLANE 0.1f
+#define FAR_PLANE 100.0f
 
 static void crash_handler(int sig) {
     void *addrs[32];
@@ -36,18 +46,54 @@ static double get_time_s(void) {
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
+typedef struct { int x, y, z; } BlockPos;
+
+static bool raycast_find_solid(World *world, vec3 pos, vec3 dir, float max_dist, float step, BlockPos *out) {
+    for (float t = 0; t < max_dist; t += step) {
+        vec3 p = vec3_add(pos, vec3_mul(dir, t));
+        int bx = (int)floorf(p.x);
+        int by = (int)floorf(p.y);
+        int bz = (int)floorf(p.z);
+        if (world_get_block(world, bx, by, bz) != BLOCK_AIR) {
+            out->x = bx; out->y = by; out->z = bz;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool raycast_find_solid_with_prev(World *world, vec3 pos, vec3 dir, float max_dist, float step, BlockPos *out, BlockPos *prev_out) {
+    BlockPos prev = {0};
+    bool has_prev = false;
+    for (float t = 0; t < max_dist; t += step) {
+        vec3 p = vec3_add(pos, vec3_mul(dir, t));
+        int bx = (int)floorf(p.x);
+        int by = (int)floorf(p.y);
+        int bz = (int)floorf(p.z);
+        BlockType b = world_get_block(world, bx, by, bz);
+        if (b != BLOCK_AIR) {
+            if (out) { out->x = bx; out->y = by; out->z = bz; }
+            if (prev_out) { *prev_out = prev; }
+            return has_prev;
+        }
+        prev.x = bx; prev.y = by; prev.z = bz;
+        has_prev = true;
+    }
+    return false;
+}
+
 int main(void) {
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
     signal(SIGBUS, crash_handler);
 
-    if (platform_init(800, 600) != 0) return 1;
+    if (platform_init(WINDOW_WIDTH, WINDOW_HEIGHT) != 0) return 1;
 
 #ifdef ENABLE_LOGGER
     logger_init("kyub.log");
 #endif
 
-    if (!renderer_init(800, 600)) {
+    if (!renderer_init(WINDOW_WIDTH, WINDOW_HEIGHT)) {
         fprintf(stderr, "Failed to initialize renderer\n");
         platform_shutdown();
 #ifdef ENABLE_LOGGER
@@ -134,7 +180,6 @@ int main(void) {
 
     R_VAO hud_vao = renderer_create_vao();
     R_Buffer hud_vbo = renderer_create_buffer();
-    R_Buffer test_vbo = renderer_create_buffer();
     float crosshair[] = {
         -0.015f, 0.0f,  0.015f, 0.0f,
         0.0f, -0.02f,  0.0f, 0.02f
@@ -145,10 +190,6 @@ int main(void) {
     renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(hud_vao);
-
-    float test_tri[] = {0.0f, 0.2f,  -0.3f, -0.2f,  0.3f, -0.2f};
-    renderer_bind_buffer(R_BUF_ARRAY, test_vbo);
-    renderer_buffer_data(R_BUF_ARRAY, sizeof(test_tri), test_tri, R_USAGE_STATIC);
 
     R_Texture atlas = texture_load("assets/atlas.png");
     if (atlas == R_INVALID_HANDLE) {
@@ -161,7 +202,6 @@ int main(void) {
 
     Camera camera;
     camera_init(&camera);
-    input_init();
 
     /* Find safe spawn position - move camera above terrain */
     /* First update world to load chunks at initial position */
@@ -186,7 +226,7 @@ int main(void) {
 
     UI ui;
     ui.render_distance = world.render_distance;
-    ui_init(&ui, 800, 600);
+    ui_init(&ui, WINDOW_WIDTH, WINDOW_HEIGHT);
 
     platform_hide_cursor(true);
     platform_grab_mouse(true);
@@ -195,10 +235,12 @@ int main(void) {
     double last_fps_update = 0.0;
     bool running = true;
     bool paused = false;
-    int win_width = 800;
-    int win_height = 600;
+    int win_width = WINDOW_WIDTH;
+    int win_height = WINDOW_HEIGHT;
 
     platform_get_window_size(&win_width, &win_height);
+
+    GameInput game_input = {0};
 
     while (running) {
         platform_get_window_size(&win_width, &win_height);
@@ -207,50 +249,52 @@ int main(void) {
         double dt = now - last_time;
         last_time = now;
 
+        nk_platform_begin_frame();
+
         Event event;
         while (platform_poll_event(&event)) {
-            if (event.type == 1) {  // EVENT_KEY_DOWN
-                input_set_key(event.key.key, true);
-                if (event.key.key == 0x10) input_set_shift(true);
-                if (event.key.key == 'p') ui.visible = !ui.visible;
-                if (event.key.key == 't') {
-                    paused = !paused;
-                    platform_hide_cursor(!paused);
-                    platform_grab_mouse(!paused);
-                }
-                if (event.key.key == 0x1B) {
-                    paused = !paused;
-                    platform_hide_cursor(!paused);
-                    platform_grab_mouse(!paused);
-                }
-            } else if (event.type == 2) {  // EVENT_KEY_UP
-                input_set_key(event.key.key, false);
-                if (event.key.key == 0x10) input_set_shift(false);
-            } else if (event.type == 3) {  // EVENT_MOUSE_BUTTON
-                input_set_mouse_button(event.mouse_button.button, event.mouse_button.down);
-            } else if (event.type == 4) {  // EVENT_MOUSE_MOTION
-                input_set_mouse_pos(event.mouse_motion.x, event.mouse_motion.y);
-                if (!paused) {
-                    int dx = event.mouse_motion.x - win_width / 2;
-                    int dy = event.mouse_motion.y - win_height / 2;
-                    if (dx != 0 || dy != 0) {
-                        input_set_mouse_delta((float)dx, (float)dy);
-                        platform_warp_mouse(win_width / 2, win_height / 2);
+            nk_platform_handle_event(&event);
+            game_input_handle_event(&game_input, &event);
+
+            switch (event.type) {
+                case EVENT_KEY_DOWN:
+                    if (event.key.key == 'p') ui.visible = !ui.visible;
+                    if (event.key.key == 't' || event.key.key == 0x1B) {
+                        paused = !paused;
+                        platform_hide_cursor(!paused);
+                        platform_grab_mouse(!paused);
                     }
-                }
-            } else if (event.type == 5) {  // EVENT_RESIZE
-                win_width = event.resize.width;
-                win_height = event.resize.height;
-                renderer_viewport(0, 0, win_width, win_height);
-            } else if (event.type == 6) {  // EVENT_QUIT
-                running = false;
+                    break;
+                case EVENT_MOUSE_MOTION:
+                    if (!paused) {
+                        int dx = event.mouse_motion.x - win_width / 2;
+                        int dy = event.mouse_motion.y - win_height / 2;
+                        if (dx != 0 || dy != 0) {
+                            game_input.mouse_dx += (float)dx;
+                            game_input.mouse_dy += (float)dy;
+                            platform_warp_mouse(win_width / 2, win_height / 2);
+                        }
+                    }
+                    break;
+                case EVENT_RESIZE:
+                    win_width = event.resize.width;
+                    win_height = event.resize.height;
+                    renderer_viewport(0, 0, win_width, win_height);
+                    break;
+                case EVENT_QUIT:
+                    running = false;
+                    break;
+                default:
+                    break;
             }
         }
 
+        nk_platform_end_frame();
+
 #ifdef ENABLE_LOGGER
-        if (g_input.keys['w'] || g_input.keys['a'] || g_input.keys['s'] || g_input.keys['d']) {
+        if (game_input.keys['w'] || game_input.keys['a'] || game_input.keys['s'] || game_input.keys['d']) {
             LOG_DEBUG(CAT_INPUT, "main post-events: w=%d a=%d s=%d d=%d",
-                g_input.keys['w'], g_input.keys['a'], g_input.keys['s'], g_input.keys['d']);
+                game_input.keys['w'], game_input.keys['a'], game_input.keys['s'], game_input.keys['d']);
         }
         double timing_start = get_time_s();
         double frame_start = timing_start;
@@ -262,29 +306,22 @@ int main(void) {
 } while(0)
 #else
 #define LOG_TIMING(name) ((void)0)
-        double timing_start = 0;
-        double frame_start = 0;
 #endif
 
-        nk_input_sync(&ui.ctx, g_input.mouse_x, g_input.mouse_y,
-            g_input.mouse_left, g_input.mouse_right, 0,
-            g_input.shift, g_input.keys[0x11], g_input.keys[0x12],
-            g_input.keys[0x0D], g_input.keys[0x09], g_input.keys[0x08], g_input.keys[0x7F],
-            g_input.keys[0x25], g_input.keys[0x27], g_input.keys[0x26], g_input.keys[0x28]);
-        LOG_TIMING("nk_input_sync");
+        LOG_TIMING("nk_input");
 
         if (paused) {
             static bool prev_pause_click = false;
-            if (g_input.mouse_left && !prev_pause_click) {
-                float mx = 2.0f * ui.ctx.input.mouse.pos.x / win_width - 1.0f;
-                float my = 1.0f - 2.0f * ui.ctx.input.mouse.pos.y / win_height;
+            if (game_input.mouse_left && !prev_pause_click) {
+                float mx = 2.0f * game_input.mouse_x / win_width - 1.0f;
+                float my = 1.0f - 2.0f * game_input.mouse_y / win_height;
                 if (mx >= -0.12f && mx <= 0.12f && my >= -0.12f && my <= 0.12f)
                     running = false;
             }
-            prev_pause_click = g_input.mouse_left;
+            prev_pause_click = game_input.mouse_left;
         }
 
-        camera_update(&camera, dt, &world);
+        camera_update(&camera, dt, &world, &game_input);
         LOG_TIMING("camera_update");
 
         static float break_cooldown = 0.0f;
@@ -293,88 +330,42 @@ int main(void) {
         place_cooldown -= (float)dt;
 
         if (!paused) {
-            if (g_input.mouse_left && break_cooldown <= 0.0f) {
-                vec3 dir = camera.front;
-                vec3 pos = camera.pos;
-                bool hit_found = false;
-                int hit_x = 0, hit_y = 0, hit_z = 0;
-                LOG_DEBUG(CAT_WORLD, "Break raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f", pos.x, pos.y, pos.z, dir.x, dir.y, dir.z);
-                for (float t = 0; t < 8.0f; t += 0.05f) {
-                    vec3 p = vec3_add(pos, vec3_mul(dir, t));
-                    int bx = (int)floorf(p.x);
-                    int by = (int)floorf(p.y);
-                    int bz = (int)floorf(p.z);
-                    BlockType b = world_get_block(&world, bx, by, bz);
-                    if (b != BLOCK_AIR) {
-                        hit_found = true;
-                        hit_x = bx; hit_y = by; hit_z = bz;
-                        LOG_DEBUG(CAT_WORLD, "Break hit block at %d,%d,%d type=%d", bx, by, bz, b);
-                        break;
-                    }
-                }
-                if (hit_found) {
-                    LOG_DEBUG(CAT_WORLD, "Break setting block %d,%d,%d to AIR", hit_x, hit_y, hit_z);
-                    world_set_block(&world, hit_x, hit_y, hit_z, BLOCK_AIR);
+            if (game_input.mouse_left && break_cooldown <= 0.0f) {
+                BlockPos hit;
+                LOG_DEBUG(CAT_WORLD, "Break raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f",
+                          camera.pos.x, camera.pos.y, camera.pos.z, camera.front.x, camera.front.y, camera.front.z);
+                if (raycast_find_solid(&world, camera.pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit)) {
+                    LOG_DEBUG(CAT_WORLD, "Break setting block %d,%d,%d to AIR", hit.x, hit.y, hit.z);
+                    world_set_block(&world, hit.x, hit.y, hit.z, BLOCK_AIR);
                 } else {
                     LOG_DEBUG(CAT_WORLD, "Break no block hit in range");
                 }
-                break_cooldown = 0.25f;
+                break_cooldown = COOLDOWN_TIME;
             }
-            if (g_input.mouse_right && place_cooldown <= 0.0f) {
-                vec3 dir = camera.front;
-                vec3 pos = camera.pos;
-                bool prev_found = false;
-                int prev_x = 0, prev_y = 0, prev_z = 0;
-                LOG_DEBUG(CAT_WORLD, "Place raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f", pos.x, pos.y, pos.z, dir.x, dir.y, dir.z);
-                for (float t = 0; t < 8.0f; t += 0.05f) {
-                    vec3 p = vec3_add(pos, vec3_mul(dir, t));
-                    int bx = (int)floorf(p.x);
-                    int by = (int)floorf(p.y);
-                    int bz = (int)floorf(p.z);
-                    BlockType b = world_get_block(&world, bx, by, bz);
-                    if (b != BLOCK_AIR) {
-                        if (prev_found) {
-                            BlockType prev_b = world_get_block(&world, prev_x, prev_y, prev_z);
-                            LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d type=%d, prev=%d,%d,%d type=%d", bx, by, bz, b, prev_x, prev_y, prev_z, prev_b);
-                            if (prev_b == BLOCK_AIR) {
-                                LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev_x, prev_y, prev_z, ui.selected_block);
-                                world_set_block(&world, prev_x, prev_y, prev_z, ui.selected_block);
-                            }
-                        } else {
-                            LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d but no previous position", bx, by, bz);
-                        }
-                        break;
+            if (game_input.mouse_right && place_cooldown <= 0.0f) {
+                BlockPos hit, prev;
+                LOG_DEBUG(CAT_WORLD, "Place raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f",
+                          camera.pos.x, camera.pos.y, camera.pos.z, camera.front.x, camera.front.y, camera.front.z);
+                if (raycast_find_solid_with_prev(&world, camera.pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit, &prev)) {
+                    BlockType prev_b = world_get_block(&world, prev.x, prev.y, prev.z);
+                    LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d, prev=%d,%d,%d type=%d",
+                              hit.x, hit.y, hit.z, prev.x, prev.y, prev.z, prev_b);
+                    if (prev_b == BLOCK_AIR) {
+                        LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev.x, prev.y, prev.z, ui.selected_block);
+                        world_set_block(&world, prev.x, prev.y, prev.z, ui.selected_block);
                     }
-                    prev_found = true;
-                    prev_x = bx; prev_y = by; prev_z = bz;
-                }
-                if (!prev_found) {
+                } else {
                     LOG_DEBUG(CAT_WORLD, "Place no block hit in range");
                 }
-                place_cooldown = 0.25f;
+                place_cooldown = COOLDOWN_TIME;
             }
         }
 
         LOG_TIMING("raycasts");
 
         // Block highlight raycast
-        bool hl_found = false;
-        int hl_x = 0, hl_y = 0, hl_z = 0;
-        {
-            vec3 dir = camera.front;
-            vec3 pos = camera.pos;
-            for (float t = 0; t < 8.0f; t += 0.05f) {
-                vec3 p = vec3_add(pos, vec3_mul(dir, t));
-                int bx = (int)floorf(p.x);
-                int by = (int)floorf(p.y);
-                int bz = (int)floorf(p.z);
-                if (world_get_block(&world, bx, by, bz) != BLOCK_AIR) {
-                    hl_found = true;
-                    hl_x = bx; hl_y = by; hl_z = bz;
-                    break;
-                }
-            }
-        }
+        BlockPos hl;
+        bool hl_found = raycast_find_solid(&world, camera.pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hl);
 
         renderer_clear(0.1f, 0.1f, 0.12f, 1.0f);
         LOG_TIMING("renderer_clear");
@@ -393,7 +384,7 @@ int main(void) {
         int fog_density_loc = renderer_uniform_location(shader_program, "uFogDensity");
         renderer_uniform_float(fog_density_loc, 0.015f);
 
-        mat4 projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
+        mat4 projection = mat4_perspective(FOV_DEGREES * PI / 180.0f, (float)win_width / (float)win_height, NEAR_PLANE, FAR_PLANE);
         mat4 view = camera_get_view_matrix(&camera);
 
         Frustum frustum;
@@ -418,7 +409,7 @@ int main(void) {
         // Render block highlight outline
         if (hl_found) {
             renderer_use_program(outline_program);
-            mat4 hl_model = mat4_translate((vec3){(float)hl_x, (float)hl_y, (float)hl_z});
+            mat4 hl_model = mat4_translate((vec3){(float)hl.x, (float)hl.y, (float)hl.z});
             int ol_model_loc = renderer_uniform_location(outline_program, "model");
             renderer_uniform_mat4(ol_model_loc, hl_model.m);
             int ol_view_loc = renderer_uniform_location(outline_program, "view");
@@ -446,7 +437,7 @@ int main(void) {
         renderer_depth_func(R_FUNC_LEQUAL);
         renderer_disable(R_CAP_CULL_FACE);
         renderer_use_program(skybox_program);
-        mat4 skybox_projection = mat4_perspective(45.0f * PI / 180.0f, (float)win_width / (float)win_height, 0.1f, 100.0f);
+        mat4 skybox_projection = mat4_perspective(FOV_DEGREES * PI / 180.0f, (float)win_width / (float)win_height, NEAR_PLANE, FAR_PLANE);
         int sb_proj_loc = renderer_uniform_location(skybox_program, "projection");
         renderer_uniform_mat4(sb_proj_loc, skybox_projection.m);
         int sb_view_loc = renderer_uniform_location(skybox_program, "view");
@@ -537,7 +528,6 @@ int main(void) {
     renderer_destroy_buffer(button_vbo);
     renderer_destroy_vao(hud_vao);
     renderer_destroy_buffer(hud_vbo);
-    renderer_destroy_buffer(test_vbo);
     renderer_destroy_texture(atlas);
     renderer_shutdown();
 

@@ -3,7 +3,6 @@
 #include "math3d.h"
 #include <string.h>
 #include <math.h>
-#include <stdlib.h>
 
 void voxel_upload_texture(R_Texture *tex, const Chunk *chunk) {
     *tex = renderer_create_texture();

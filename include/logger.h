@@ -13,7 +13,7 @@ typedef enum {
 
 typedef enum {
     CAT_WORLD = 0,
-    CAT_GL,
+    CAT_RENDERER,
     CAT_UI,
     CAT_INPUT,
     CAT_PLATFORM,

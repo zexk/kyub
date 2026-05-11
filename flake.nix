@@ -1,5 +1,5 @@
 {
-  description = "A minimalist C99 Voxel Engine with Vulkan backend";
+  description = "A minimalist C99 Voxel Engine with Vulkan and OpenGL backends";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -19,6 +19,7 @@
 
         buildInputs = with pkgs; [
           libX11
+          libGL
           vulkan-loader
           vulkan-headers
           shaderc
@@ -62,8 +63,9 @@
             ];
             shellHook = ''
               echo "Kyub Voxel Engine dev shell"
-              echo "  make       - debug build"
-              echo "  make release - optimized build"
+              echo "  make                  - debug build (Vulkan)"
+              echo "  make RENDERER=opengl  - debug build (OpenGL)"
+              echo "  make release          - optimized build (Vulkan)"
               echo "  KYUB_LOG=debug ./build/kyub - enable debug logging"
             '';
           };

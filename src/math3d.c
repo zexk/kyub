@@ -1,5 +1,4 @@
 #include "math3d.h"
-#include <string.h>
 
 vec3 vec3_add(vec3 a, vec3 b) { return (vec3){a.x + b.x, a.y + b.y, a.z + b.z}; }
 vec3 vec3_sub(vec3 a, vec3 b) { return (vec3){a.x - b.x, a.y - b.y, a.z - b.z}; }
@@ -98,7 +97,7 @@ void frustum_extract(Frustum *f, mat4 vp) {
     }
 }
 
-bool frustum_intersects_box(Frustum *f, vec3 min, vec3 max) {
+bool frustum_intersects_box(const Frustum *f, vec3 min, vec3 max) {
     for (int i = 0; i < 6; i++) {
         vec3 p = {
             (f->planes[i].a > 0) ? max.x : min.x,

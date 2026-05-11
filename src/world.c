@@ -1,7 +1,7 @@
 #include "world.h"
 #include "logger.h"
 #include <stdlib.h>
-#include <stdio.h>
+#include <math.h>
 
 #define MAX_RENDER_DISTANCE 8
 
@@ -17,7 +17,12 @@ void world_init(World *world, int render_distance) {
 #endif
 }
 
-static bool chunk_is_loaded(World *world, int x, int z) {
+static int world_chunk_coord(int x) {
+    if (x >= 0) return x / CHUNK_SIZE;
+    return -((-x + CHUNK_SIZE - 1) / CHUNK_SIZE);
+}
+
+static bool chunk_is_loaded(const World *world, int x, int z) {
     for (int i = 0; i < world->capacity; i++) {
         if (world->chunks[i].active && world->chunks[i].chunk->x == x && world->chunks[i].chunk->z == z)
             return true;
@@ -59,8 +64,8 @@ static void unload_chunk(World *world, int index) {
 }
 
 void world_update(World *world, vec3 camera_pos) {
-    int cx = camera_pos.x >= 0 ? (int)(camera_pos.x / CHUNK_SIZE) : (int)(camera_pos.x / CHUNK_SIZE) - 1;
-    int cz = camera_pos.z >= 0 ? (int)(camera_pos.z / CHUNK_SIZE) : (int)(camera_pos.z / CHUNK_SIZE) - 1;
+    int cx = world_chunk_coord((int)floorf(camera_pos.x));
+    int cz = world_chunk_coord((int)floorf(camera_pos.z));
 
     // Load new chunks (+1 buffer for interaction range at chunk boundaries)
     int load_dist = world->render_distance + 1;
@@ -99,7 +104,7 @@ void world_free(World *world) {
     free(world->chunks);
 }
 
-static LoadedChunk* find_chunk(World *world, int cx, int cz) {
+static LoadedChunk* find_chunk(const World *world, int cx, int cz) {
     for (int i = 0; i < world->capacity; i++) {
         if (world->chunks[i].active && world->chunks[i].chunk->x == cx && world->chunks[i].chunk->z == cz)
             return &world->chunks[i];
@@ -107,10 +112,10 @@ static LoadedChunk* find_chunk(World *world, int cx, int cz) {
     return NULL;
 }
 
-BlockType world_get_block(World *world, int x, int y, int z) {
+BlockType world_get_block(const World *world, int x, int y, int z) {
     if (y < 0 || y >= CHUNK_SIZE) return BLOCK_AIR;
-    int cx = x >= 0 ? x / CHUNK_SIZE : -((-x + CHUNK_SIZE - 1) / CHUNK_SIZE);
-    int cz = z >= 0 ? z / CHUNK_SIZE : -((-z + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    int cx = world_chunk_coord(x);
+    int cz = world_chunk_coord(z);
     LoadedChunk *lc = find_chunk(world, cx, cz);
     if (!lc) {
         LOG_WARN(CAT_WORLD, "get_block: chunk %d,%d not loaded for block %d,%d,%d", cx, cz, x, y, z);
@@ -121,14 +126,14 @@ BlockType world_get_block(World *world, int x, int y, int z) {
     return lc->chunk->blocks[lx][y][lz];
 }
 
-bool world_is_solid(World *world, int x, int y, int z) {
+bool world_is_solid(const World *world, int x, int y, int z) {
     return world_get_block(world, x, y, z) != BLOCK_AIR;
 }
 
 void world_set_block(World *world, int x, int y, int z, BlockType type) {
     if (y < 0 || y >= CHUNK_SIZE) return;
-    int cx = x >= 0 ? x / CHUNK_SIZE : -((-x + CHUNK_SIZE - 1) / CHUNK_SIZE);
-    int cz = z >= 0 ? z / CHUNK_SIZE : -((-z + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    int cx = world_chunk_coord(x);
+    int cz = world_chunk_coord(z);
     LoadedChunk *lc = find_chunk(world, cx, cz);
     if (!lc) {
         if (world->count < world->capacity) {

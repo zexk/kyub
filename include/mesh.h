@@ -2,7 +2,7 @@
 #define MESH_H
 
 #include "voxel.h"
-#include "renderer.h"
+#include "renderer/renderer.h"
 
 typedef struct {
     float x, y, z, w;
@@ -23,7 +23,7 @@ typedef struct {
 } Mesh;
 
 void mesh_init(Mesh *mesh);
-void mesh_generate_greedy(Mesh *mesh, Chunk *chunk);
+void mesh_generate_greedy(Mesh *mesh, const Chunk *chunk);
 void mesh_generate_gpu(Mesh *mesh, R_Program compute_program, R_Texture voxel_tex, int chunk_x, int chunk_z);
 void mesh_upload(Mesh *mesh);
 void mesh_prepare_gpu(Mesh *mesh);

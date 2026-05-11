@@ -8,7 +8,7 @@ R_Texture texture_load(const char *path) {
     int width, height, channels;
     unsigned char *data = stbi_load(path, &width, &height, &channels, 0);
     if (!data) {
-        LOG_ERROR(CAT_GL, "Failed to load texture: %s", path);
+        LOG_ERROR(CAT_RENDERER, "Failed to load texture: %s", path);
         return R_INVALID_HANDLE;
     }
 
@@ -24,6 +24,6 @@ R_Texture texture_load(const char *path) {
     renderer_generate_mipmap();
 
     stbi_image_free(data);
-    LOG_INFO(CAT_GL, "Loaded texture: %s (%dx%d)", path, width, height);
+    LOG_INFO(CAT_RENDERER, "Loaded texture: %s (%dx%d)", path, width, height);
     return texture;
 }

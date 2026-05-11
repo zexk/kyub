@@ -40,6 +40,6 @@ typedef struct {
 
 // Math helpers
 void frustum_extract(Frustum *f, mat4 vp);
-bool frustum_intersects_box(Frustum *f, vec3 min, vec3 max);
+bool frustum_intersects_box(const Frustum *f, vec3 min, vec3 max);
 
 #endif // MATH3D_H

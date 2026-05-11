@@ -1,6 +1,5 @@
 #include "mesh.h"
 #include <stdlib.h>
-#include <string.h>
 
 void mesh_init(Mesh *mesh) {
     mesh->vertex_count = 0;
@@ -55,7 +54,7 @@ static UVRect get_uv_rect(BlockType type) {
     }
 }
 
-static bool is_transparent(Chunk *chunk, int x, int y, int z) {
+static bool is_transparent(const Chunk *chunk, int x, int y, int z) {
     if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) return true;
     return chunk->blocks[x][y][z] == BLOCK_AIR;
 }
@@ -69,7 +68,7 @@ static float vertex_ao(bool side1, bool side2, bool corner) {
     return 0.5f;
 }
 
-static void add_face(Mesh *mesh, Chunk *chunk, int x, int y, int z, int face, BlockType type) {
+static void add_face(Mesh *mesh, const Chunk *chunk, int x, int y, int z, int face, BlockType type) {
     float ox = (float)(x + chunk->x * CHUNK_SIZE);
     float oy = (float)y;
     float oz = (float)(z + chunk->z * CHUNK_SIZE);
@@ -162,7 +161,7 @@ void mesh_generate_gpu(Mesh *mesh, R_Program compute_program, R_Texture voxel_te
     mesh_update_draw_count(mesh);
 }
 
-void mesh_generate_greedy(Mesh *mesh, Chunk *chunk) {
+void mesh_generate_greedy(Mesh *mesh, const Chunk *chunk) {
     mesh->vertex_count = 0;
     for (int x = 0; x < CHUNK_SIZE; x++) {
         for (int y = 0; y < CHUNK_SIZE; y++) {
@@ -180,13 +179,7 @@ void mesh_generate_greedy(Mesh *mesh, Chunk *chunk) {
     }
 }
 
-void mesh_upload(Mesh *mesh) {
-    if (mesh->vao == R_INVALID_HANDLE) mesh->vao = renderer_create_vao();
-    if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
-    renderer_bind_vao(mesh->vao);
-    renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
-    /* Upload vertex data without recreating buffer (avoid GPU stall) */
-    renderer_buffer_sub_data(R_BUF_ARRAY, 0, mesh->vertex_count * sizeof(Vertex), mesh->vertices);
+static void mesh_setup_attribs(void) {
     renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 0);
     renderer_enable_attrib(0);
     renderer_attrib_pointer(1, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 4 * sizeof(float));
@@ -197,6 +190,16 @@ void mesh_upload(Mesh *mesh) {
     renderer_enable_attrib(3);
     renderer_attrib_pointer(4, 2, R_TYPE_FLOAT, false, sizeof(Vertex), 12 * sizeof(float));
     renderer_enable_attrib(4);
+}
+
+void mesh_upload(Mesh *mesh) {
+    if (mesh->vao == R_INVALID_HANDLE) mesh->vao = renderer_create_vao();
+    if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
+    renderer_bind_vao(mesh->vao);
+    renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
+    /* Upload vertex data without recreating buffer (avoid GPU stall) */
+    renderer_buffer_sub_data(R_BUF_ARRAY, 0, mesh->vertex_count * sizeof(Vertex), mesh->vertices);
+    mesh_setup_attribs();
     renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
     renderer_bind_vao(R_INVALID_HANDLE); /* Unbind VAO to avoid stale state */
 }
@@ -208,16 +211,7 @@ void mesh_prepare_gpu(Mesh *mesh) {
     // VBO should already be allocated; just bind it
     renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
     // Set attribute pointers (same layout as mesh_upload)
-    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 0);
-    renderer_enable_attrib(0);
-    renderer_attrib_pointer(1, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 4 * sizeof(float));
-    renderer_enable_attrib(1);
-    renderer_attrib_pointer(2, 3, R_TYPE_FLOAT, false, sizeof(Vertex), 8 * sizeof(float));
-    renderer_enable_attrib(2);
-    renderer_attrib_pointer(3, 1, R_TYPE_FLOAT, false, sizeof(Vertex), 11 * sizeof(float));
-    renderer_enable_attrib(3);
-    renderer_attrib_pointer(4, 2, R_TYPE_FLOAT, false, sizeof(Vertex), 12 * sizeof(float));
-    renderer_enable_attrib(4);
+    mesh_setup_attribs();
     renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
     renderer_bind_vao(R_INVALID_HANDLE);
 
