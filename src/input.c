@@ -13,11 +13,9 @@ void input_init(void) {
 void input_set_key(int key, bool pressed) {
     if (key >= 0 && key < 256) {
         g_input.keys[key] = pressed;
-#ifdef ENABLE_LOGGER
         if (key == 'w' || key == 'a' || key == 's' || key == 'd' || key == ' ') {
             LOG_DEBUG(CAT_INPUT, "input_set_key: key=%c pressed=%d", key, pressed);
         }
-#endif
     }
 }
 

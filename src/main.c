@@ -16,6 +16,19 @@
 #include <unistd.h>
 #include <math.h>
 #include <stdio.h>
+#include <execinfo.h>
+#include <signal.h>
+#include <stdlib.h>
+
+static void crash_handler(int sig) {
+    void *addrs[32];
+    int n = backtrace(addrs, 32);
+    fprintf(stderr, "\n=== CRASH (signal %d) ===\n", sig);
+    backtrace_symbols_fd(addrs, n, STDERR_FILENO);
+    fprintf(stderr, "========================\n");
+    logger_shutdown();
+    _Exit(1);
+}
 
 static double get_time_s(void) {
     struct timespec ts;
@@ -24,52 +37,56 @@ static double get_time_s(void) {
 }
 
 int main(void) {
+    signal(SIGSEGV, crash_handler);
+    signal(SIGABRT, crash_handler);
+    signal(SIGBUS, crash_handler);
+
     if (platform_init(800, 600) != 0) return 1;
 
 #ifdef ENABLE_LOGGER
     logger_init("kyub.log");
-    logger_set_level(LOG_DEBUG);
 #endif
 
-    renderer_init(800, 600);
+    if (!renderer_init(800, 600)) {
+        fprintf(stderr, "Failed to initialize renderer\n");
+        platform_shutdown();
+#ifdef ENABLE_LOGGER
+        logger_shutdown();
+#endif
+        return 1;
+    }
 
     renderer_enable(R_CAP_DEPTH_TEST);
     renderer_enable(R_CAP_CULL_FACE);
     renderer_enable(R_CAP_MULTISAMPLE);
 
-    R_Program shader_program = renderer_create_program("shaders/basic.vert", "shaders/basic.frag");
+    R_Program shader_program = renderer_create_program("build/shaders/basic", "build/shaders/basic");
     if (shader_program == R_INVALID_HANDLE) return 1;
 
-    R_Program hud_program = renderer_create_program("shaders/hud.vert", "shaders/hud.frag");
+    R_Program hud_program = renderer_create_program("build/shaders/hud", "build/shaders/hud");
     if (hud_program == R_INVALID_HANDLE) return 1;
 
-    R_Program skybox_program = renderer_create_program("shaders/skybox.vert", "shaders/skybox.frag");
+    R_Program skybox_program = renderer_create_program("build/shaders/skybox", "build/shaders/skybox");
     if (skybox_program == R_INVALID_HANDLE) return 1;
 
-    R_Program outline_program = renderer_create_program("shaders/outline.vert", "shaders/outline.frag");
+    R_Program outline_program = renderer_create_program("build/shaders/outline", "build/shaders/outline");
     if (outline_program == R_INVALID_HANDLE) return 1;
 
-R_VAO skybox_vao = renderer_create_vao();
+    R_VAO skybox_vao = renderer_create_vao();
     R_Buffer skybox_vbo = renderer_create_buffer();
     float skybox_cube[] = {
-        // Front face (-Z)
         -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
         -1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
-        // Back face (+Z)
          1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
          1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
-        // Left face (-X)
-        -1.0f, -1.0f, -1.0f,  -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
-        -1.0f, -1.0f, -1.0f,  -1.0f,  1.0f,  1.0f,  -1.0f,  1.0f, -1.0f,
-        // Right face (+X)
-         1.0f, -1.0f,  1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
-         1.0f, -1.0f,  1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
-        // Bottom face (-Y)
-        -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,
-        -1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,
-        // Top face (+Y)
         -1.0f,  1.0f, -1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
         -1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,  -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,   1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,   1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,  1.0f,
     };
     renderer_bind_vao(skybox_vao);
     renderer_bind_buffer(R_BUF_ARRAY, skybox_vbo);
@@ -134,6 +151,10 @@ R_VAO skybox_vao = renderer_create_vao();
     renderer_buffer_data(R_BUF_ARRAY, sizeof(test_tri), test_tri, R_USAGE_STATIC);
 
     R_Texture atlas = texture_load("assets/atlas.png");
+    if (atlas == R_INVALID_HANDLE) {
+        fprintf(stderr, "Failed to load atlas texture\n");
+        return 1;
+    }
 
     World world;
     world_init(&world, 2);
@@ -390,13 +411,7 @@ R_VAO skybox_vao = renderer_create_vao();
                 mat4 model = mat4_identity();
                 renderer_uniform_mat4(model_loc, model.m);
                 renderer_bind_vao(world.chunks[i].mesh->vao);
-#if defined(ENABLE_COMPUTE) && !defined(RENDERER_VULKAN)
-                renderer_bind_buffer(R_BUF_DRAW_INDIRECT, world.chunks[i].mesh->indirect_draw_buffer);
-                renderer_draw_arrays_indirect();
-                renderer_bind_buffer(R_BUF_DRAW_INDIRECT, R_INVALID_HANDLE);
-#else
                 renderer_draw_arrays(R_PRIM_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
-#endif
             }
         }
 

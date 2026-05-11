@@ -1,0 +1,40 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-vulkan:
+    name: Vulkan Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc make libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxi-dev libvulkan-dev vulkan-tools glslang-tools spirv-tools
+
+      - name: Build debug
+        run: make
+
+      - name: Verify binary
+        run: test -f build/kyub && echo "Build successful"
+
+      - name: Build release
+        run: make release
+
+      - name: Verify release binary
+        run: test -f build/kyub && echo "Release build successful"
+
+  build-nix:
+    name: Nix Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: nix build .#kyub --accept-flake-config

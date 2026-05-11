@@ -6,15 +6,14 @@ void mesh_init(Mesh *mesh) {
     mesh->vertex_count = 0;
     mesh->vertex_capacity = 4096;
     mesh->vertices = malloc(sizeof(Vertex) * mesh->vertex_capacity);
+    if (!mesh->vertices) return;
     mesh->vao = R_INVALID_HANDLE;
     mesh->vbo = R_INVALID_HANDLE;
     mesh->ebo = R_INVALID_HANDLE;
     mesh->indirect_draw_buffer = R_INVALID_HANDLE;
     mesh->atomic_counter_buffer = R_INVALID_HANDLE;
-    // Allocate a large VBO for GPU generation (max vertices heuristic)
-    // 16MB is safe for 16^3 checkerboard chunk (max faces).
     size_t vbo_size = 16 * 1024 * 1024;
-    if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
+    mesh->vbo = renderer_create_buffer();
     renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
     renderer_buffer_data(R_BUF_ARRAY, vbo_size, NULL, R_USAGE_DYNAMIC);
     renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
@@ -25,7 +24,9 @@ void mesh_init(Mesh *mesh) {
 static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, float b, float nx, float ny, float nz, float ao, float u, float v) {
     if (mesh->vertex_count >= mesh->vertex_capacity) {
         mesh->vertex_capacity *= 2;
-        mesh->vertices = realloc(mesh->vertices, sizeof(Vertex) * mesh->vertex_capacity);
+        Vertex *new_vertices = realloc(mesh->vertices, sizeof(Vertex) * mesh->vertex_capacity);
+        if (!new_vertices) return;
+        mesh->vertices = new_vertices;
     }
     // Add tiny offset to prevent seam gaps (z-fighting)
     x += (nx != 0.0f) ? nx * EPSILON : 0.0f;
@@ -40,7 +41,6 @@ static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, 
 }
 
 typedef struct { float r, g, b; } Color;
-static Color get_block_color(BlockType type) { return (Color){1.0f, 1.0f, 1.0f}; }
 
 typedef struct { float u_off, v_off, w, h; } UVRect;
 static UVRect get_uv_rect(BlockType type) {
@@ -252,8 +252,21 @@ void mesh_update_draw_count(Mesh *mesh) {
 
 void mesh_free(Mesh *mesh) {
     free(mesh->vertices);
-    if (mesh->indirect_draw_buffer != R_INVALID_HANDLE) renderer_destroy_buffer(mesh->indirect_draw_buffer);
-    if (mesh->atomic_counter_buffer != R_INVALID_HANDLE) renderer_destroy_buffer(mesh->atomic_counter_buffer);
-    if (mesh->vao != R_INVALID_HANDLE) renderer_destroy_vao(mesh->vao);
-    if (mesh->vbo != R_INVALID_HANDLE) renderer_destroy_buffer(mesh->vbo);
+    mesh->vertices = NULL;
+    if (mesh->indirect_draw_buffer != R_INVALID_HANDLE) {
+        renderer_destroy_buffer(mesh->indirect_draw_buffer);
+        mesh->indirect_draw_buffer = R_INVALID_HANDLE;
+    }
+    if (mesh->atomic_counter_buffer != R_INVALID_HANDLE) {
+        renderer_destroy_buffer(mesh->atomic_counter_buffer);
+        mesh->atomic_counter_buffer = R_INVALID_HANDLE;
+    }
+    if (mesh->vao != R_INVALID_HANDLE) {
+        renderer_destroy_vao(mesh->vao);
+        mesh->vao = R_INVALID_HANDLE;
+    }
+    if (mesh->vbo != R_INVALID_HANDLE) {
+        renderer_destroy_buffer(mesh->vbo);
+        mesh->vbo = R_INVALID_HANDLE;
+    }
 }

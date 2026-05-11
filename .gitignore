@@ -14,5 +14,9 @@ result
 *.swo
 *~
 
+# Runtime logs
+kyub.log
+kyub.log.old
+
 # assets
 assets/
