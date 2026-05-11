@@ -24,8 +24,8 @@ typedef struct World {
 void world_init(World *world, int render_distance);
 void world_update(World *world, vec3 camera_pos);
 void world_free(World *world);
-BlockType world_get_block(World *world, int x, int y, int z);
-bool world_is_solid(World *world, int x, int y, int z);
+BlockType world_get_block(const World *world, int x, int y, int z);
+bool world_is_solid(const World *world, int x, int y, int z);
 void world_set_block(World *world, int x, int y, int z, BlockType type);
 
 #endif // WORLD_H

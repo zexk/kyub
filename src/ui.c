@@ -1,5 +1,5 @@
 #include "ui.h"
-#include "input.h"
+#include "platform/nk_platform.h"
 #include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,6 +59,7 @@ void ui_init(UI *ui, int width, int height) {
     nk_buffer_init(&ui->elements, &alloc, UI_MAX_ELEMENT_BUFFER);
 
     nk_init_default(&ui->ctx, NULL);
+    nk_platform_init(&ui->ctx);
 
     nk_font_atlas_init_default(&ui->atlas);
     nk_font_atlas_begin(&ui->atlas);

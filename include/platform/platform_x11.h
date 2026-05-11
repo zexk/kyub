@@ -2,7 +2,7 @@
 #define PLATFORM_X11_H
 
 #include <X11/Xlib.h>
-#include "platform.h"
+#include "platform/platform.h"
 
 int  platform_x11_init(int width, int height);
 void platform_x11_shutdown(void);

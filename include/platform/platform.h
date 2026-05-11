@@ -11,6 +11,8 @@ typedef enum {
     EVENT_KEY_UP,
     EVENT_MOUSE_BUTTON,
     EVENT_MOUSE_MOTION,
+    EVENT_SCROLL,
+    EVENT_TEXT,
     EVENT_RESIZE,
     EVENT_QUIT
 } EventType;
@@ -21,12 +23,14 @@ typedef enum {
     MOUSE_BUTTON_RIGHT = 3
 } MouseButton;
 
-typedef struct {
+typedef struct Event {
     EventType type;
     union {
-        struct { int key; bool down; } key;
+        struct { int key; unsigned long keysym; bool down; } key;
         struct { int x; int y; MouseButton button; bool down; } mouse_button;
         struct { int x; int y; } mouse_motion;
+        struct { int dx; int dy; } scroll;
+        struct { char c; } text;
         struct { int width; int height; } resize;
     };
 } Event;

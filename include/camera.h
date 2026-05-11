@@ -4,7 +4,6 @@
 #include "math3d.h"
 
 typedef struct World World;
-bool world_is_solid(World *world, int x, int y, int z);
 
 #define GRAVITY 25.0f
 #define JUMP_VELOCITY 10.0f  // 2 blocks with gravity 25
@@ -24,8 +23,9 @@ typedef struct {
     bool grounded;
 } Camera;
 
+typedef struct GameInput GameInput;
 void camera_init(Camera *cam);
-void camera_update(Camera *cam, float dt, World *world);
-mat4 camera_get_view_matrix(Camera *cam);
+void camera_update(Camera *cam, float dt, World *world, GameInput *gi);
+mat4 camera_get_view_matrix(const Camera *cam);
 
 #endif // CAMERA_H

@@ -1,5 +1,5 @@
-#include "platform.h"
-#include "platform_x11.h"
+#include "platform/platform.h"
+#include "platform/platform_x11.h"
 
 int platform_init(int width, int height) {
     return platform_x11_init(width, height);

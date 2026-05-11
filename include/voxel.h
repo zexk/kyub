@@ -2,7 +2,7 @@
 #define VOXEL_H
 
 #include <stdint.h>
-#include "renderer.h"
+#include "renderer/renderer.h"
 #include "math3d.h"
 
 #define CHUNK_SIZE 16

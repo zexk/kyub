@@ -1,9 +1,10 @@
 #include "camera.h"
-#include "input.h"
+#include "platform/game_input.h"
+#include "world.h"
 #include "logger.h"
 #include <math.h>
 
-static bool position_is_safe(World *world, vec3 pos) {
+static bool position_is_safe(const World *world, vec3 pos) {
     float hw = PLAYER_HALF_WIDTH;
     float min_x = pos.x - hw;
     float max_x = pos.x + hw;
@@ -48,17 +49,17 @@ static void update_vectors(Camera *cam) {
     cam->front = vec3_normalize(front);
 }
 
-void camera_update(Camera *cam, float dt, World *world) {
+void camera_update(Camera *cam, float dt, World *world, GameInput *gi) {
     static bool prev_w = false, prev_a = false, prev_s = false, prev_d = false;
 
-    bool keys_w = g_input.keys['w'];
-    bool keys_a = g_input.keys['a'];
-    bool keys_s = g_input.keys['s'];
-    bool keys_d = g_input.keys['d'];
-    bool key_space = g_input.keys[' '];
-    bool key_shift = g_input.shift;
-    float mouse_dx = (float)g_input.mouse_dx;
-    float mouse_dy = (float)g_input.mouse_dy;
+    bool keys_w = gi->keys['w'];
+    bool keys_a = gi->keys['a'];
+    bool keys_s = gi->keys['s'];
+    bool keys_d = gi->keys['d'];
+    bool key_space = gi->keys[' '];
+    bool key_shift = gi->shift;
+    float mouse_dx = gi->mouse_dx;
+    float mouse_dy = gi->mouse_dy;
 
     bool curr_w = keys_w;
     bool curr_a = keys_a;
@@ -158,10 +159,10 @@ void camera_update(Camera *cam, float dt, World *world) {
         cam->grounded = false;
     }
 
-    g_input.mouse_dx = 0;
-    g_input.mouse_dy = 0;
+    gi->mouse_dx = 0;
+    gi->mouse_dy = 0;
 }
 
-mat4 camera_get_view_matrix(Camera *cam) {
+mat4 camera_get_view_matrix(const Camera *cam) {
     return mat4_lookat(cam->pos, vec3_add(cam->pos, cam->front), cam->up);
 }
