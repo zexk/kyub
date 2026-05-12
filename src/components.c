@@ -17,17 +17,22 @@ void components_init(ECS *ecs) {
 }
 
 Entity register_block_type(ECS *ecs, BlockType type, const char *name, bool solid, bool opaque,
-                            float u, float v, float w, float h, float hardness) {
+                            float hardness, const char *tex_path,
+                            const char *tex_top, const char *tex_bottom, const char *tex_side) {
     Entity e = ecs_spawn(ecs);
     C_BlockDef *def = ecs_add(ecs, e, COMP_BLOCK_DEF);
-    def->name     = name;
-    def->solid    = solid;
-    def->opaque   = opaque;
-    def->uv_u     = u;
-    def->uv_v     = v;
-    def->uv_w     = w;
-    def->uv_h     = h;
-    def->hardness = hardness;
+    def->name         = name;
+    def->solid        = solid;
+    def->opaque       = opaque;
+    def->hardness     = hardness;
+    def->tex_path     = tex_path;
+    def->tex_top      = tex_top;
+    def->tex_bottom   = tex_bottom;
+    def->tex_side     = tex_side;
+    def->layer_default = -1;
+    def->layer_top     = -1;
+    def->layer_bottom  = -1;
+    def->layer_side    = -1;
     g_block_entities[type] = e;
     return e;
 }
