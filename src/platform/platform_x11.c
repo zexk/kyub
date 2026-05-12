@@ -1,10 +1,15 @@
+#define _GNU_SOURCE
 #include "platform/platform_x11.h"
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <string.h>
+#include <unistd.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #ifdef RENDERER_OPENGL
 #include <GL/glx.h>
-#include <stdio.h>
 #endif
 
 Display *g_x11_display;
@@ -90,9 +95,10 @@ int platform_x11_init(int width, int height) {
         GLX_RED_SIZE        , 8,
         GLX_GREEN_SIZE      , 8,
         GLX_BLUE_SIZE       , 8,
-        GLX_ALPHA_SIZE      , 8,
+        GLX_ALPHA_SIZE      , 0,
         GLX_DEPTH_SIZE      , 24,
         GLX_STENCIL_SIZE    , 8,
+        GLX_DOUBLEBUFFER    , True,
         GLX_SAMPLE_BUFFERS  , 0,
         GLX_SAMPLES         , 0,
         None
@@ -104,7 +110,19 @@ int platform_x11_init(int width, int height) {
         fprintf(stderr, "Failed to choose FB config\n");
         return -1;
     }
+
+    /* Find a FB config with alpha=0; fall back to first if none found */
     GLXFBConfig best_fbc = fbc[0];
+    int best_alpha = -1;
+    for (int i = 0; i < fbcount; i++) {
+        int alpha;
+        glXGetFBConfigAttrib(g_x11_display, fbc[i], GLX_ALPHA_SIZE, &alpha);
+        if (alpha == 0) {
+            best_fbc = fbc[i];
+            best_alpha = 0;
+            break;
+        }
+    }
     XFree(fbc);
 
     /* Get visual from FB config */
@@ -113,10 +131,10 @@ int platform_x11_init(int width, int height) {
         fprintf(stderr, "Failed to get visual from FB config\n");
         return -1;
     }
-
     /* Create colormap with GLX visual */
     Colormap glx_colormap = XCreateColormap(g_x11_display, g_root, vi->visual, AllocNone);
     wa.colormap = glx_colormap;
+    wa.background_pixel = BlackPixel(g_x11_display, g_screen);
 
     /* Recreate window with OpenGL-compatible visual */
     XDestroyWindow(g_x11_display, g_x11_window);
@@ -128,10 +146,18 @@ int platform_x11_init(int width, int height) {
         0, 0, width, height, 0,
         vi->depth, InputOutput,
         vi->visual,
-        CWColormap | CWEventMask, &wa
+        CWColormap | CWEventMask | CWBackPixel, &wa
     );
 
     XStoreName(g_x11_display, g_x11_window, "Kyub");
+
+    /* Hint to compositor: fully opaque window (set before mapping) */
+    Atom opacity_atom = XInternAtom(g_x11_display, "_NET_WM_WINDOW_OPACITY", False);
+    unsigned long opacity = 0xFFFFFFFF;
+    XChangeProperty(g_x11_display, g_x11_window, opacity_atom,
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char*)&opacity, 1);
+
     XMapWindow(g_x11_display, g_x11_window);
     XRaiseWindow(g_x11_display, g_x11_window);
 
@@ -320,4 +346,40 @@ Display* platform_x11_get_display(void) {
 
 Window platform_x11_get_window(void) {
     return g_x11_window;
+}
+
+static char* dup_str(const char *s) {
+    size_t len = strlen(s) + 1;
+    char *d = malloc(len);
+    if (d) memcpy(d, s, len);
+    return d;
+}
+
+char* platform_resolve_path(const char *path) {
+    if (!path) return NULL;
+
+    if (access(path, F_OK) == 0) {
+        return dup_str(path);
+    }
+
+    char exe_path[4096];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len == -1) {
+        return dup_str(path);
+    }
+    exe_path[len] = '\0';
+
+    char *last_slash = strrchr(exe_path, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+    }
+
+    size_t result_size = strlen(exe_path) + 1 + strlen(path) + 1;
+    char *result = malloc(result_size);
+    if (!result) {
+        return dup_str(path);
+    }
+
+    snprintf(result, result_size, "%s/%s", exe_path, path);
+    return result;
 }

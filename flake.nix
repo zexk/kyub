@@ -17,7 +17,7 @@
           pkg-config
         ];
 
-        buildInputs = with pkgs; [
+        vulkanBuildInputs = with pkgs; [
           libX11
           libGL
           vulkan-loader
@@ -25,33 +25,70 @@
           shaderc
           stb
         ];
+
+        openglBuildInputs = with pkgs; [
+          libX11
+          libGL
+          stb
+        ];
+
+        vulkanPackage = pkgs.stdenv.mkDerivation {
+          pname = "kyub-vulkan";
+          version = "0.1.0";
+          src = ./.;
+          nativeBuildInputs = nativeBuildInputs;
+          buildInputs = vulkanBuildInputs;
+          buildPhase = "make";
+          installPhase = ''
+            mkdir -p $out/bin
+            cp build/kyub $out/bin/
+            mkdir -p $out/bin/build
+            cp -r build/shaders $out/bin/build/
+            cp -r assets $out/bin/
+          '';
+          meta = {
+            description = "Minimalist voxel engine with Vulkan renderer";
+            homepage = "https://github.com/zexk/kyub";
+            license = pkgs.lib.licenses.mit;
+            platforms = pkgs.lib.platforms.linux;
+            mainProgram = "kyub";
+          };
+        };
+
+        openglPackage = pkgs.stdenv.mkDerivation {
+          pname = "kyub-opengl";
+          version = "0.1.0";
+          src = ./.;
+          nativeBuildInputs = nativeBuildInputs;
+          buildInputs = openglBuildInputs;
+          buildPhase = "make RENDERER=opengl";
+          installPhase = ''
+            mkdir -p $out/bin
+            cp build/kyub $out/bin/
+            mkdir -p $out/bin/build
+            cp -r build/shaders $out/bin/build/
+            cp -r assets $out/bin/
+          '';
+          meta = {
+            description = "Minimalist voxel engine with OpenGL renderer";
+            homepage = "https://github.com/zexk/kyub";
+            license = pkgs.lib.licenses.mit;
+            platforms = pkgs.lib.platforms.linux;
+            mainProgram = "kyub";
+          };
+        };
       in
       {
         packages = {
-          default = pkgs.stdenv.mkDerivation {
-            pname = "kyub";
-            version = "0.1.0";
-            src = ./.;
-            nativeBuildInputs = nativeBuildInputs;
-            buildInputs = buildInputs;
-            buildPhase = "make";
-            installPhase = ''
-              mkdir -p $out/bin
-              cp build/kyub $out/bin/
-            '';
-            meta = {
-              description = "Minimalist voxel engine with Vulkan renderer";
-              homepage = "https://github.com/zexk/kyub";
-              license = pkgs.lib.licenses.mit;
-              platforms = pkgs.lib.platforms.linux;
-            };
-          };
+          vulkan = vulkanPackage;
+          opengl = openglPackage;
+          default = vulkanPackage;
         };
 
         devShells = {
           default = pkgs.mkShell {
             nativeBuildInputs = nativeBuildInputs;
-            buildInputs = buildInputs;
+            buildInputs = vulkanBuildInputs;
             packages = with pkgs; [
               gdb
               shaderc

@@ -44,4 +44,6 @@ void platform_hide_cursor(bool hidden);
 void platform_grab_mouse(bool grabbed);
 void platform_warp_mouse(int x, int y);
 
+char* platform_resolve_path(const char *path);
+
 #endif // PLATFORM_H

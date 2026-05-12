@@ -48,6 +48,7 @@ static void load_chunk(World *world, int x, int z) {
             return;
         }
     }
+    LOG_WARN(CAT_WORLD, "load_chunk FAILED: no free slot for chunk %d,%d (active=%d, capacity=%d)", x, z, world->count, world->capacity);
 }
 
 static void unload_chunk(World *world, int index) {

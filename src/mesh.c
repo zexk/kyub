@@ -1,4 +1,5 @@
 #include "mesh.h"
+#include "components.h"
 #include <stdlib.h>
 
 void mesh_init(Mesh *mesh) {
@@ -42,21 +43,30 @@ static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, 
 typedef struct { float r, g, b; } Color;
 
 typedef struct { float u_off, v_off, w, h; } UVRect;
+
 static UVRect get_uv_rect(BlockType type) {
-    float s = 0.0625f;  // 1/16 = 0.0625
     float padding = 0.006f;  // ~2 pixel padding to prevent seams
-    float uv_size = s - (padding * 2);
-    switch (type) {
-        case BLOCK_GRASS: return (UVRect){padding, padding, uv_size, uv_size};
-        case BLOCK_DIRT:  return (UVRect){s + padding, padding, uv_size, uv_size};
-        case BLOCK_STONE: return (UVRect){padding, s + padding, uv_size, uv_size};
-        default:          return (UVRect){s + padding, s + padding, uv_size, uv_size};
-    }
+    Entity e = g_block_entities[type];
+    C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
+    if (!def) return (UVRect){0, 0, 0, 0};
+    return (UVRect){
+        def->uv_u + padding,
+        def->uv_v + padding,
+        def->uv_w - (padding * 2),
+        def->uv_h - (padding * 2)
+    };
+}
+
+static bool is_opaque(BlockType type) {
+    Entity e = g_block_entities[type];
+    C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
+    if (!def) return false;
+    return def->opaque;
 }
 
 static bool is_transparent(const Chunk *chunk, int x, int y, int z) {
     if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) return true;
-    return chunk->blocks[x][y][z] == BLOCK_AIR;
+    return !is_opaque(chunk->blocks[x][y][z]);
 }
 
 static float vertex_ao(bool side1, bool side2, bool corner) {
@@ -197,8 +207,8 @@ void mesh_upload(Mesh *mesh) {
     if (mesh->vbo == R_INVALID_HANDLE) mesh->vbo = renderer_create_buffer();
     renderer_bind_vao(mesh->vao);
     renderer_bind_buffer(R_BUF_ARRAY, mesh->vbo);
-    /* Upload vertex data without recreating buffer (avoid GPU stall) */
-    renderer_buffer_sub_data(R_BUF_ARRAY, 0, mesh->vertex_count * sizeof(Vertex), mesh->vertices);
+    /* Allocate storage and upload vertex data */
+    renderer_buffer_data(R_BUF_ARRAY, mesh->vertex_count * sizeof(Vertex), mesh->vertices, R_USAGE_DYNAMIC);
     mesh_setup_attribs();
     renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
     renderer_bind_vao(R_INVALID_HANDLE); /* Unbind VAO to avoid stale state */

@@ -13,6 +13,9 @@
 #include "ui.h"
 #include "platform/platform.h"
 #include "logger.h"
+#include "ecs.h"
+#include "components.h"
+#include "systems.h"
 #include <time.h>
 #include <unistd.h>
 #include <math.h>
@@ -54,7 +57,8 @@ static bool raycast_find_solid(World *world, vec3 pos, vec3 dir, float max_dist,
         int bx = (int)floorf(p.x);
         int by = (int)floorf(p.y);
         int bz = (int)floorf(p.z);
-        if (world_get_block(world, bx, by, bz) != BLOCK_AIR) {
+        BlockType b = world_get_block(world, bx, by, bz);
+        if (b != BLOCK_AIR) {
             out->x = bx; out->y = by; out->z = bz;
             return true;
         }
@@ -102,9 +106,24 @@ int main(void) {
         return 1;
     }
 
+    renderer_viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+
     renderer_enable(R_CAP_DEPTH_TEST);
     renderer_enable(R_CAP_CULL_FACE);
     renderer_enable(R_CAP_MULTISAMPLE);
+
+    ecs_init(&g_ecs, 4096);
+    components_init(&g_ecs);
+    memset(g_block_entities, 0, sizeof(g_block_entities));
+
+    register_block_type(&g_ecs, BLOCK_AIR,    "Air",    false, false, 0.0f,    0.0f,    0.0f,    0.0f,    0.0f);
+    register_block_type(&g_ecs, BLOCK_DIRT,   "Dirt",   true,  true,  0.0625f, 0.0f,    0.0625f, 0.0625f, 1.0f);
+    register_block_type(&g_ecs, BLOCK_GRASS,  "Grass",  true,  true,  0.0f,    0.0625f, 0.0625f, 0.0625f, 1.0f);
+    register_block_type(&g_ecs, BLOCK_STONE,  "Stone",  true,  true,  0.0625f, 0.0625f, 0.0625f, 0.0625f, 2.0f);
+    register_block_type(&g_ecs, BLOCK_SAND,   "Sand",   true,  true,  0.125f,  0.0f,    0.0625f, 0.0625f, 1.0f);
+    register_block_type(&g_ecs, BLOCK_GRAVEL, "Gravel", true,  true,  0.125f,  0.0625f, 0.0625f, 0.0625f, 1.0f);
+    register_block_type(&g_ecs, BLOCK_WOOD,   "Wood",   true,  true,  0.0f,    0.125f,  0.0625f, 0.0625f, 2.0f);
+    register_block_type(&g_ecs, BLOCK_LEAVES, "Leaves", true,  false, 0.0625f, 0.125f,  0.0625f, 0.0625f, 0.5f);
 
     R_Program shader_program = renderer_create_program("build/shaders/basic", "build/shaders/basic");
     if (shader_program == R_INVALID_HANDLE) return 1;
@@ -137,7 +156,7 @@ int main(void) {
     renderer_bind_vao(skybox_vao);
     renderer_bind_buffer(R_BUF_ARRAY, skybox_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(skybox_cube), skybox_cube, R_USAGE_STATIC);
-    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 0, 0);
+    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 12, 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
@@ -151,7 +170,7 @@ int main(void) {
     renderer_bind_vao(outline_vao);
     renderer_bind_buffer(R_BUF_ARRAY, outline_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(outline_cube), outline_cube, R_USAGE_STATIC);
-    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 0, 0);
+    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 12, 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
@@ -161,7 +180,7 @@ int main(void) {
     renderer_bind_vao(overlay_vao);
     renderer_bind_buffer(R_BUF_ARRAY, overlay_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(overlay_tri), overlay_tri, R_USAGE_STATIC);
-    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 0, 0);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 8, 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
@@ -174,7 +193,7 @@ int main(void) {
     renderer_bind_vao(button_vao);
     renderer_bind_buffer(R_BUF_ARRAY, button_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(button_tri), button_tri, R_USAGE_STATIC);
-    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 0, 0);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 8, 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
@@ -201,18 +220,21 @@ int main(void) {
     world_init(&world, 2);
 
     Camera camera;
-    camera_init(&camera);
+    camera_init(&camera, &g_ecs);
 
-    /* Find safe spawn position - move camera above terrain */
+    C_Transform *player_transform = ecs_get(&g_ecs, camera.player, COMP_TRANSFORM);
+    vec3 player_pos = player_transform ? player_transform->position : (vec3){8.0f, 20.0f, 8.0f};
+
+    /* Find safe spawn position - move player above terrain */
     /* First update world to load chunks at initial position */
-    world_update(&world, camera.pos);
+    world_update(&world, player_pos);
     /* Wait a few frames for chunks to load */
     for (int i = 0; i < 10; i++) {
-        world_update(&world, camera.pos);
+        world_update(&world, player_pos);
     }
     /* Find ground height at spawn position */
-    int spawn_x = (int)floorf(camera.pos.x);
-    int spawn_z = (int)floorf(camera.pos.z);
+    int spawn_x = (int)floorf(player_pos.x);
+    int spawn_z = (int)floorf(player_pos.z);
     int ground_y = 0;
     for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
         if (world_is_solid(&world, spawn_x, y, spawn_z)) {
@@ -220,9 +242,12 @@ int main(void) {
             break;
         }
     }
-    /* Place camera 2 blocks above ground */
-    camera.pos.y = (float)(ground_y + 2) + PLAYER_EYES_HEIGHT;
-    LOG_INFO(CAT_PLATFORM, "Spawn position set to y=%.2f (ground at y=%d)", camera.pos.y, ground_y);
+    /* Place player 2 blocks above ground */
+    if (player_transform) {
+        player_transform->position.y = (float)(ground_y + 2) + PLAYER_EYES_HEIGHT;
+    }
+    LOG_INFO(CAT_PLATFORM, "Spawn position set to y=%.2f (ground at y=%d)",
+             player_transform ? player_transform->position.y : 20.0f, ground_y);
 
     UI ui;
     ui.render_distance = world.render_distance;
@@ -321,7 +346,8 @@ int main(void) {
             prev_pause_click = game_input.mouse_left;
         }
 
-        camera_update(&camera, dt, &world, &game_input);
+        sys_movement(&g_ecs, &world, (float)dt);
+        camera_update(&camera, dt, &world, &game_input, &g_ecs);
         LOG_TIMING("camera_update");
 
         static float break_cooldown = 0.0f;
@@ -329,12 +355,15 @@ int main(void) {
         break_cooldown -= (float)dt;
         place_cooldown -= (float)dt;
 
+        player_transform = ecs_get(&g_ecs, camera.player, COMP_TRANSFORM);
+        vec3 cam_pos = player_transform ? player_transform->position : (vec3){0, 0, 0};
+
         if (!paused) {
             if (game_input.mouse_left && break_cooldown <= 0.0f) {
                 BlockPos hit;
                 LOG_DEBUG(CAT_WORLD, "Break raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f",
-                          camera.pos.x, camera.pos.y, camera.pos.z, camera.front.x, camera.front.y, camera.front.z);
-                if (raycast_find_solid(&world, camera.pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit)) {
+                          cam_pos.x, cam_pos.y, cam_pos.z, camera.front.x, camera.front.y, camera.front.z);
+                if (raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit)) {
                     LOG_DEBUG(CAT_WORLD, "Break setting block %d,%d,%d to AIR", hit.x, hit.y, hit.z);
                     world_set_block(&world, hit.x, hit.y, hit.z, BLOCK_AIR);
                 } else {
@@ -345,8 +374,8 @@ int main(void) {
             if (game_input.mouse_right && place_cooldown <= 0.0f) {
                 BlockPos hit, prev;
                 LOG_DEBUG(CAT_WORLD, "Place raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f",
-                          camera.pos.x, camera.pos.y, camera.pos.z, camera.front.x, camera.front.y, camera.front.z);
-                if (raycast_find_solid_with_prev(&world, camera.pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit, &prev)) {
+                          cam_pos.x, cam_pos.y, cam_pos.z, camera.front.x, camera.front.y, camera.front.z);
+                if (raycast_find_solid_with_prev(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit, &prev)) {
                     BlockType prev_b = world_get_block(&world, prev.x, prev.y, prev.z);
                     LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d, prev=%d,%d,%d type=%d",
                               hit.x, hit.y, hit.z, prev.x, prev.y, prev.z, prev_b);
@@ -365,13 +394,17 @@ int main(void) {
 
         // Block highlight raycast
         BlockPos hl;
-        bool hl_found = raycast_find_solid(&world, camera.pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hl);
+        bool hl_found = raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hl);
+
+        renderer_enable(R_CAP_DEPTH_TEST);
+        renderer_enable(R_CAP_CULL_FACE);
+        renderer_disable(R_CAP_BLEND);
 
         renderer_clear(0.1f, 0.1f, 0.12f, 1.0f);
         LOG_TIMING("renderer_clear");
 
         /* Update world after fence wait to avoid GPU read/write race on buffers */
-        world_update(&world, camera.pos);
+        world_update(&world, cam_pos);
         LOG_TIMING("world_update");
 
         renderer_use_program(shader_program);
@@ -385,7 +418,7 @@ int main(void) {
         renderer_uniform_float(fog_density_loc, 0.015f);
 
         mat4 projection = mat4_perspective(FOV_DEGREES * PI / 180.0f, (float)win_width / (float)win_height, NEAR_PLANE, FAR_PLANE);
-        mat4 view = camera_get_view_matrix(&camera);
+        mat4 view = camera_get_view_matrix(&camera, &g_ecs);
 
         Frustum frustum;
         frustum_extract(&frustum, mat4_multiply(projection, view));
@@ -485,7 +518,7 @@ int main(void) {
             if (world.chunks[i].active) active_chunks++;
         }
         if (now - last_fps_update >= 0.5) {
-            ui_set_stats(&ui, (int)(1.0f / dt + 0.5f), active_chunks, camera.pos, camera.front, camera.yaw, camera.pitch);
+            ui_set_stats(&ui, (int)(1.0f / dt + 0.5f), active_chunks, cam_pos, camera.front, camera.yaw, camera.pitch);
             last_fps_update = now;
         }
 
@@ -530,6 +563,7 @@ int main(void) {
     renderer_destroy_buffer(hud_vbo);
     renderer_destroy_texture(atlas);
     renderer_shutdown();
+    ecs_shutdown(&g_ecs);
 
 #ifdef ENABLE_LOGGER
     logger_shutdown();
