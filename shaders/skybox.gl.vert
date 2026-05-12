@@ -1,17 +1,14 @@
 #version 450 core
 
-layout(location = 0) in vec3 aPos;
+layout(location = 0) in vec2 aPos;
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
+uniform mat4 inv_projection;
+uniform mat4 inv_view_rotation;
 
-layout(location = 0) out vec3 pos;
+layout(location = 0) out vec3 ray_dir;
 
 void main() {
-    pos = aPos;
-    mat4 view_rotation = mat4(mat3(view));
-    vec4 clip_pos = projection * view_rotation * vec4(aPos, 1.0);
-    float w = clip_pos.w + 0.0001;
-    gl_Position = vec4(clip_pos.xy, w, w);
+    gl_Position = vec4(aPos, 1.0, 1.0);
+    vec4 viewRay = inv_projection * vec4(aPos, 1.0, 1.0);
+    ray_dir = (inv_view_rotation * viewRay).xyz;
 }

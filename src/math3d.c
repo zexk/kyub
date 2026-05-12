@@ -82,6 +82,62 @@ mat4 mat4_multiply(mat4 a, mat4 b) {
     return res;
 }
 
+mat4 mat4_transpose(mat4 m) {
+    mat4 res;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            res.m[i + j * 4] = m.m[j + i * 4];
+        }
+    }
+    return res;
+}
+
+mat4 mat4_inverse(mat4 m) {
+    float inv[16], det;
+    int i;
+
+    inv[0] = m.m[5]  * m.m[10] * m.m[15] - m.m[5]  * m.m[11] * m.m[14] - m.m[9]  * m.m[6] * m.m[15] +
+             m.m[9]  * m.m[7] * m.m[14] + m.m[13] * m.m[6] * m.m[11] - m.m[13] * m.m[7] * m.m[10];
+    inv[4] = -m.m[4]  * m.m[10] * m.m[15] + m.m[4]  * m.m[11] * m.m[14] + m.m[8]  * m.m[6] * m.m[15] -
+              m.m[8]  * m.m[7] * m.m[14] - m.m[12] * m.m[6] * m.m[11] + m.m[12] * m.m[7] * m.m[10];
+    inv[8] = m.m[4]  * m.m[9] * m.m[15] - m.m[4]  * m.m[11] * m.m[13] - m.m[8]  * m.m[5] * m.m[15] +
+             m.m[8]  * m.m[7] * m.m[13] + m.m[12] * m.m[5] * m.m[11] - m.m[12] * m.m[7] * m.m[9];
+    inv[12] = -m.m[4]  * m.m[9] * m.m[14] + m.m[4]  * m.m[10] * m.m[13] + m.m[8]  * m.m[5] * m.m[14] -
+               m.m[8]  * m.m[6] * m.m[13] - m.m[12] * m.m[5] * m.m[10] + m.m[12] * m.m[6] * m.m[9];
+    inv[1] = -m.m[1]  * m.m[10] * m.m[15] + m.m[1]  * m.m[11] * m.m[14] + m.m[9]  * m.m[2] * m.m[15] -
+              m.m[9]  * m.m[3] * m.m[14] - m.m[13] * m.m[2] * m.m[11] + m.m[13] * m.m[3] * m.m[10];
+    inv[5] = m.m[0]  * m.m[10] * m.m[15] - m.m[0]  * m.m[11] * m.m[14] - m.m[8]  * m.m[2] * m.m[15] +
+             m.m[8]  * m.m[3] * m.m[14] + m.m[12] * m.m[2] * m.m[11] - m.m[12] * m.m[3] * m.m[10];
+    inv[9] = -m.m[0]  * m.m[9] * m.m[15] + m.m[0]  * m.m[11] * m.m[13] + m.m[8]  * m.m[1] * m.m[15] -
+              m.m[8]  * m.m[3] * m.m[13] - m.m[12] * m.m[1] * m.m[11] + m.m[12] * m.m[3] * m.m[9];
+    inv[13] = m.m[0]  * m.m[9] * m.m[14] - m.m[0]  * m.m[10] * m.m[13] - m.m[8]  * m.m[1] * m.m[14] +
+              m.m[8]  * m.m[2] * m.m[13] + m.m[12] * m.m[1] * m.m[10] - m.m[12] * m.m[2] * m.m[9];
+    inv[2] = m.m[1]  * m.m[6] * m.m[15] - m.m[1]  * m.m[7] * m.m[14] - m.m[5]  * m.m[2] * m.m[15] +
+             m.m[5]  * m.m[3] * m.m[14] + m.m[13] * m.m[2] * m.m[7] - m.m[13] * m.m[3] * m.m[6];
+    inv[6] = -m.m[0]  * m.m[6] * m.m[15] + m.m[0]  * m.m[7] * m.m[14] + m.m[4]  * m.m[2] * m.m[15] -
+              m.m[4]  * m.m[3] * m.m[14] - m.m[12] * m.m[2] * m.m[7] + m.m[12] * m.m[3] * m.m[6];
+    inv[10] = m.m[0]  * m.m[5] * m.m[15] - m.m[0]  * m.m[7] * m.m[13] - m.m[4]  * m.m[1] * m.m[15] +
+              m.m[4]  * m.m[3] * m.m[13] + m.m[12] * m.m[1] * m.m[7] - m.m[12] * m.m[3] * m.m[5];
+    inv[14] = -m.m[0]  * m.m[5] * m.m[14] + m.m[0]  * m.m[6] * m.m[13] + m.m[4]  * m.m[1] * m.m[14] -
+               m.m[4]  * m.m[2] * m.m[13] - m.m[12] * m.m[1] * m.m[6] + m.m[12] * m.m[2] * m.m[5];
+    inv[3] = -m.m[1] * m.m[6] * m.m[11] + m.m[1] * m.m[7] * m.m[10] + m.m[5] * m.m[2] * m.m[11] -
+              m.m[5] * m.m[3] * m.m[10] - m.m[9] * m.m[2] * m.m[7] + m.m[9] * m.m[3] * m.m[6];
+    inv[7] = m.m[0] * m.m[6] * m.m[11] - m.m[0] * m.m[7] * m.m[10] - m.m[4] * m.m[2] * m.m[11] +
+             m.m[4] * m.m[3] * m.m[10] + m.m[8] * m.m[2] * m.m[7] - m.m[8] * m.m[3] * m.m[6];
+    inv[11] = -m.m[0] * m.m[5] * m.m[11] + m.m[0] * m.m[7] * m.m[9] + m.m[4] * m.m[1] * m.m[11] -
+               m.m[4] * m.m[3] * m.m[9] - m.m[8] * m.m[1] * m.m[7] + m.m[8] * m.m[3] * m.m[5];
+    inv[15] = m.m[0] * m.m[5] * m.m[10] - m.m[0] * m.m[6] * m.m[9] - m.m[4] * m.m[1] * m.m[10] +
+              m.m[4] * m.m[2] * m.m[9] + m.m[8] * m.m[1] * m.m[6] - m.m[8] * m.m[2] * m.m[5];
+
+    det = m.m[0] * inv[0] + m.m[1] * inv[4] + m.m[2] * inv[8] + m.m[3] * inv[12];
+    if (det == 0) return mat4_identity();
+    det = 1.0f / det;
+
+    mat4 res;
+    for (i = 0; i < 16; i++) res.m[i] = inv[i] * det;
+    return res;
+}
+
 void frustum_extract(Frustum *f, mat4 vp) {
     // Left
     f->planes[0] = (Plane){vp.m[3] + vp.m[0], vp.m[7] + vp.m[4], vp.m[11] + vp.m[8], vp.m[15] + vp.m[12]};
