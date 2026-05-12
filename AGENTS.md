@@ -57,6 +57,14 @@ The binary is at `./build/kyub`.
 - **Texture location**: `assets/textures/*.png` (e.g., `dirt.png`, `grass_top.png`, `grass_side.png`)
 - **Fallback**: Missing textures log a warning and render as black for that face
 
+## World Persistence
+
+- **Save location**: local saves are written under `saves/default/` and ignored by git
+- **Chunk files**: one versioned file per chunk (`chunk_X_Z.kch`)
+- **Compatibility**: chunk data uses a stable string block-ID palette (`kyub:stone`, etc.), not raw enum meanings
+- **Format**: fixed magic/version header plus typed sections; unknown future sections can be skipped
+- **Flush policy**: edited chunks save periodically, on unload, and during shutdown
+
 ## ECS Architecture
 
 - Entity = `uint32_t` index into flat arrays

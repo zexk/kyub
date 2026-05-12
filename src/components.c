@@ -16,11 +16,12 @@ void components_init(ECS *ecs) {
     COMP_HEALTH     = ecs_register(ecs, sizeof(C_Health));
 }
 
-Entity register_block_type(ECS *ecs, BlockType type, const char *name, bool solid, bool opaque,
+Entity register_block_type(ECS *ecs, BlockType type, const char *id, const char *name, bool solid, bool opaque,
                             float hardness, const char *tex_path,
                             const char *tex_top, const char *tex_bottom, const char *tex_side) {
     Entity e = ecs_spawn(ecs);
     C_BlockDef *def = ecs_add(ecs, e, COMP_BLOCK_DEF);
+    def->id           = id;
     def->name         = name;
     def->solid        = solid;
     def->opaque       = opaque;
