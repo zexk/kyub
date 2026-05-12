@@ -25,6 +25,7 @@ typedef struct {
 
 /* --- Block Definition: static properties of a block type --- */
 typedef struct {
+    const char *id;
     const char *name;
     bool  solid;
     bool  opaque;
@@ -56,7 +57,7 @@ typedef struct {
 void components_init(ECS *ecs);
 
 /* Register one block type as a static entity */
-Entity register_block_type(ECS *ecs, BlockType type, const char *name, bool solid, bool opaque,
+Entity register_block_type(ECS *ecs, BlockType type, const char *id, const char *name, bool solid, bool opaque,
                             float hardness, const char *tex_path,
                             const char *tex_top, const char *tex_bottom, const char *tex_side);
 

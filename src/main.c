@@ -114,14 +114,14 @@ int main(void) {
     components_init(&g_ecs);
     memset(g_block_entities, 0, sizeof(g_block_entities));
 
-    register_block_type(&g_ecs, BLOCK_AIR,    "Air",    false, false, 0.0f, NULL, NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_DIRT,   "Dirt",   true,  true,  1.0f, "assets/textures/dirt.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_GRASS,  "Grass",  true,  true,  1.0f, "assets/textures/dirt.png", "assets/textures/grass_top.png", "assets/textures/dirt.png", "assets/textures/grass_side.png");
-    register_block_type(&g_ecs, BLOCK_STONE,  "Stone",  true,  true,  2.0f, "assets/textures/stone.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_SAND,   "Sand",   true,  true,  1.0f, "assets/textures/sand.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_GRAVEL, "Gravel", true,  true,  1.0f, "assets/textures/gravel.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_WOOD,   "Wood",   true,  true,  2.0f, "assets/textures/wood.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_LEAVES, "Leaves", true,  false, 0.5f, "assets/textures/leaves.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_AIR,    "kyub:air",    "Air",    false, false, 0.0f, NULL, NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_DIRT,   "kyub:dirt",   "Dirt",   true,  true,  1.0f, "assets/textures/dirt.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_GRASS,  "kyub:grass",  "Grass",  true,  true,  1.0f, "assets/textures/dirt.png", "assets/textures/grass_top.png", "assets/textures/dirt.png", "assets/textures/grass_side.png");
+    register_block_type(&g_ecs, BLOCK_STONE,  "kyub:stone",  "Stone",  true,  true,  2.0f, "assets/textures/stone.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_SAND,   "kyub:sand",   "Sand",   true,  true,  1.0f, "assets/textures/sand.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_GRAVEL, "kyub:gravel", "Gravel", true,  true,  1.0f, "assets/textures/gravel.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_WOOD,   "kyub:wood",   "Wood",   true,  true,  2.0f, "assets/textures/wood.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_LEAVES, "kyub:leaves", "Leaves", true,  false, 0.5f, "assets/textures/leaves.png", NULL, NULL, NULL);
 
     /* Collect unique texture paths and build texture array */
     const char *tex_paths[32];
@@ -310,6 +310,7 @@ int main(void) {
 
     double last_time = get_time_s();
     double last_fps_update = 0.0;
+    double last_save_flush = 0.0;
     bool running = true;
     bool paused = false;
     int win_width = WINDOW_WIDTH;
@@ -593,6 +594,10 @@ int main(void) {
         if (now - last_fps_update >= 0.5) {
             last_fps_update = now;
         }
+        if (now - last_save_flush >= 5.0) {
+            world_flush_saves(&world);
+            last_save_flush = now;
+        }
 
         world.render_distance = render_distance;
 
@@ -614,6 +619,7 @@ int main(void) {
 #endif
     }
 
+    world_flush_saves(&world);
     world_free(&world);
     renderer_destroy_program(shader_program);
     renderer_destroy_program(hud_program);

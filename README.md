@@ -61,10 +61,11 @@ KYUB_LOG=debug ./build/kyub   # Verbose debug output
 
 ## Architecture
 
-- **Renderer** (`src/renderer_vulkan.c`) - Vulkan renderer
+- **Renderer** (`src/renderer/`) - Vulkan renderer and OpenGL fallback
 - **World** (`src/world.c`) - Chunk-based terrain management
 - **Mesh** (`src/mesh.c`) - Greedy meshing with ambient occlusion
 - **Noise** (`src/noise.c`) - Perlin noise terrain generation
+- **Persistence** (`src/world.c`) - Versioned per-chunk save files in `saves/default/`
 
 ## Project Structure
 
@@ -72,6 +73,7 @@ KYUB_LOG=debug ./build/kyub   # Verbose debug output
 src/          - Engine source
 include/      - Public headers
 shaders/      - GLSL sources (.vert/.frag/.comp)
-assets/       - Textures (atlas.png)
+assets/       - Textures
+saves/        - Local world saves (gitignored)
 build/        - Compiled output
 ```

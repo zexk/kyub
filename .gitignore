@@ -17,3 +17,6 @@ result
 # Runtime logs
 kyub.log
 kyub.log.old
+
+# Local world saves
+saves/
