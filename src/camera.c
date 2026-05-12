@@ -2,6 +2,7 @@
 #include "platform/game_input.h"
 #include "world.h"
 #include "logger.h"
+#include "components.h"
 #include <math.h>
 
 static bool position_is_safe(const World *world, vec3 pos) {
@@ -29,16 +30,28 @@ static bool position_is_safe(const World *world, vec3 pos) {
     return true;
 }
 
-void camera_init(Camera *cam) {
-    cam->pos = (vec3){8.0f, 20.0f, 8.0f};
+void camera_init(Camera *cam, ECS *ecs) {
     cam->front = (vec3){0.0f, -1.0f, 0.0f};
     cam->up = (vec3){0.0f, 1.0f, 0.0f};
     cam->yaw = -90.0f;
     cam->pitch = -45.0f;
     cam->speed = 5.0f;
     cam->sensitivity = 0.1f;
-    cam->velocity = (vec3){0.0f, 0.0f, 0.0f};
-    cam->grounded = false;
+
+    cam->player = ecs_spawn(ecs);
+    C_Transform *transform = ecs_add(ecs, cam->player, COMP_TRANSFORM);
+    transform->position = (vec3){8.0f, 20.0f, 8.0f};
+    transform->yaw = cam->yaw;
+    transform->pitch = cam->pitch;
+
+    C_Movement *movement = ecs_add(ecs, cam->player, COMP_MOVEMENT);
+    movement->velocity = (vec3){0.0f, 0.0f, 0.0f};
+    movement->speed = cam->speed;
+    movement->grounded = false;
+
+    C_Health *health = ecs_add(ecs, cam->player, COMP_HEALTH);
+    health->current = 20.0f;
+    health->max = 20.0f;
 }
 
 static void update_vectors(Camera *cam) {
@@ -49,8 +62,12 @@ static void update_vectors(Camera *cam) {
     cam->front = vec3_normalize(front);
 }
 
-void camera_update(Camera *cam, float dt, World *world, GameInput *gi) {
+void camera_update(Camera *cam, float dt, World *world, GameInput *gi, ECS *ecs) {
     static bool prev_w = false, prev_a = false, prev_s = false, prev_d = false;
+
+    C_Transform *transform = ecs_get(ecs, cam->player, COMP_TRANSFORM);
+    C_Movement *movement = ecs_get(ecs, cam->player, COMP_MOVEMENT);
+    if (!transform || !movement) return;
 
     bool keys_w = gi->keys['w'];
     bool keys_a = gi->keys['a'];
@@ -77,11 +94,14 @@ void camera_update(Camera *cam, float dt, World *world, GameInput *gi) {
     if (cam->pitch > 89.0f) cam->pitch = 89.0f;
     if (cam->pitch < -89.0f) cam->pitch = -89.0f;
 
+    transform->yaw = cam->yaw;
+    transform->pitch = cam->pitch;
+
     update_vectors(cam);
 
     float max_step = 0.3f;
 
-    // Movement (horizontal only - vertical handled by physics)
+    // Movement (horizontal only - vertical handled by sys_movement)
     float velocity = cam->speed * dt;
     if (key_shift) velocity *= 6.0f;
 
@@ -99,70 +119,41 @@ void camera_update(Camera *cam, float dt, World *world, GameInput *gi) {
     if (move_dir.x != 0 || move_dir.z != 0) {
         move_dir = vec3_normalize(move_dir);
 
-        float new_x = cam->pos.x + move_dir.x * velocity;
-        float new_z = cam->pos.z + move_dir.z * velocity;
+        float new_x = transform->position.x + move_dir.x * velocity;
+        float new_z = transform->position.z + move_dir.z * velocity;
 
-        float orig_x = cam->pos.x;
-        float orig_z = cam->pos.z;
+        float orig_x = transform->position.x;
+        float orig_z = transform->position.z;
 
-        // Check X separately for sliding
-        vec3 test_pos = {new_x, cam->pos.y, orig_z};
+    // Check X separately for sliding
+        vec3 test_pos = {new_x, transform->position.y, orig_z};
         if (position_is_safe(world, test_pos)) {
-            cam->pos.x = new_x;
+            transform->position.x = new_x;
         }
 
         // Check Z separately for sliding (using original X)
         test_pos.x = orig_x;
         test_pos.z = new_z;
         if (position_is_safe(world, test_pos)) {
-            cam->pos.z = new_z;
+            transform->position.z = new_z;
         }
-    }
-
-    // Physics: gravity
-    cam->velocity.y -= GRAVITY * dt;
-    cam->pos.y += cam->velocity.y * dt;
-
-    // Ground collision - only check feet level
-    if (cam->velocity.y < 0) {
-        float feet_y = cam->pos.y - PLAYER_EYES_HEIGHT;
-        int feet_cell = (int)floorf(feet_y);
-        float hw = PLAYER_HALF_WIDTH;
-
-        if (world_is_solid(world, (int)floorf(cam->pos.x - hw), feet_cell, (int)floorf(cam->pos.z - hw)) ||
-            world_is_solid(world, (int)floorf(cam->pos.x + hw), feet_cell, (int)floorf(cam->pos.z - hw)) ||
-            world_is_solid(world, (int)floorf(cam->pos.x - hw), feet_cell, (int)floorf(cam->pos.z + hw)) ||
-            world_is_solid(world, (int)floorf(cam->pos.x + hw), feet_cell, (int)floorf(cam->pos.z + hw))) {
-
-            cam->pos.y = (float)(feet_cell + 1) + PLAYER_EYES_HEIGHT;
-            cam->velocity.y = 0.0f;
-            cam->grounded = true;
-        } else {
-            cam->grounded = false;
-        }
-    } else {
-        cam->grounded = false;
-    }
-
-    // Check if fell below world
-    if (cam->pos.y < 0) {
-        cam->pos.y = 20.0f;
-        cam->pos.x = 8.0f;
-        cam->pos.z = 8.0f;
-        cam->velocity.y = 0.0f;
-        cam->grounded = false;
     }
 
     // Jump
-    if (key_space && cam->grounded) {
-        cam->velocity.y = JUMP_VELOCITY;
-        cam->grounded = false;
+    if (key_space && movement->grounded) {
+        movement->velocity.y = JUMP_VELOCITY;
+        movement->grounded = false;
     }
 
     gi->mouse_dx = 0;
     gi->mouse_dy = 0;
 }
 
-mat4 camera_get_view_matrix(const Camera *cam) {
-    return mat4_lookat(cam->pos, vec3_add(cam->pos, cam->front), cam->up);
+mat4 camera_get_view_matrix(const Camera *cam, ECS *ecs) {
+    C_Transform *transform = ecs_get(ecs, cam->player, COMP_TRANSFORM);
+    if (!transform) {
+        LOG_WARN(CAT_WORLD, "camera_get_view_matrix: player transform missing!");
+        return mat4_identity();
+    }
+    return mat4_lookat(transform->position, vec3_add(transform->position, cam->front), cam->up);
 }

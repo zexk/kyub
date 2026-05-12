@@ -36,6 +36,7 @@ static struct {
     Window window;
     GLuint bound_program;
     GLuint bound_vao;
+    int bound_vao_idx;
     GLuint bound_vbo;
     GLuint bound_ibo;
     int active_texture_unit;
@@ -49,17 +50,25 @@ static int g_program_count = 0;
 
 static GLBuffer g_buffers[256];
 static int g_buffer_count = 0;
+static int g_buffer_free_list[256];
+static int g_buffer_free_count = 0;
 
 static GLTexture g_textures[256];
 static int g_texture_count = 0;
+static int g_texture_free_list[256];
+static int g_texture_free_count = 0;
 
 typedef struct {
     GLuint vao;
     int stride;
+    GLuint vbo;
+    GLuint ibo;
 } GLVAO;
 
 static GLVAO g_vaos[256];
 static int g_vao_count = 0;
+static int g_vao_free_list[256];
+static int g_vao_free_count = 0;
 
 typedef struct {
     char name[64];
@@ -74,9 +83,13 @@ static int g_uniform_count = 0;
  * ============================================================================ */
 
 static char* load_file(const char *path, size_t *out_size) {
-    FILE *f = fopen(path, "rb");
+    char *resolved = platform_resolve_path(path);
+    if (!resolved) return NULL;
+
+    FILE *f = fopen(resolved, "rb");
     if (!f) {
-        LOG_ERROR(CAT_RENDERER, "Failed to open file: %s", path);
+        LOG_ERROR(CAT_RENDERER, "Failed to open file: %s", resolved);
+        free(resolved);
         return NULL;
     }
     fseek(f, 0, SEEK_END);
@@ -84,15 +97,18 @@ static char* load_file(const char *path, size_t *out_size) {
     fseek(f, 0, SEEK_SET);
     if (size <= 0) {
         fclose(f);
+        free(resolved);
         return NULL;
     }
     char *buf = malloc((size_t)size + 1);
     if (!buf) {
         fclose(f);
+        free(resolved);
         return NULL;
     }
     size_t n = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    free(resolved);
     if (n != (size_t)size) {
         free(buf);
         return NULL;
@@ -248,6 +264,8 @@ bool renderer_init(int width, int height) {
         return false;
     }
 
+    g_gl.bound_vao_idx = -1;
+
     /* Default state */
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -320,8 +338,12 @@ void renderer_swap(void) {
 }
 
 void renderer_swap_interval(int interval) {
-    (void)interval;
-    /* glXSwapIntervalEXT not available in all drivers; ignore for now */
+    typedef int (*PFNGLXSWAPINTERVALEXTPROC)(Display *dpy, GLXDrawable drawable, int interval);
+    PFNGLXSWAPINTERVALEXTPROC swap_interval_ext =
+        (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddressARB((const GLubyte *)"glXSwapIntervalEXT");
+    if (swap_interval_ext) {
+        swap_interval_ext(g_gl.display, g_gl.window, interval);
+    }
 }
 
 void renderer_get_size(int *width, int *height) {
@@ -553,6 +575,13 @@ void renderer_uniform_ivec2(int location, int x, int y) {
  * ============================================================================ */
 
 R_Buffer renderer_create_buffer(void) {
+    if (g_buffer_free_count > 0) {
+        int idx = g_buffer_free_list[--g_buffer_free_count];
+        GLuint buffer;
+        glCreateBuffers(1, &buffer);
+        g_buffers[idx] = (GLBuffer){buffer, 0};
+        return (R_Buffer)idx;
+    }
     if (g_buffer_count >= R_MAX_BUFFERS) return R_INVALID_HANDLE;
     GLuint buffer;
     glCreateBuffers(1, &buffer);
@@ -566,26 +595,28 @@ void renderer_destroy_buffer(R_Buffer buffer) {
     if (g_buffers[buffer].buffer) {
         glDeleteBuffers(1, &g_buffers[buffer].buffer);
         g_buffers[buffer].buffer = 0;
+        if (g_buffer_free_count < R_MAX_BUFFERS) {
+            g_buffer_free_list[g_buffer_free_count++] = (int)buffer;
+        }
     }
 }
 
 void renderer_bind_buffer(R_BufferTarget target, R_Buffer buffer) {
-    if (buffer == R_INVALID_HANDLE) {
-        if (target == R_BUF_ELEMENT) {
-            g_gl.bound_ibo = 0;
-        } else {
-            g_gl.bound_vbo = 0;
-        }
-        return;
+    GLuint buf = 0;
+    if (buffer != R_INVALID_HANDLE && buffer < (R_Buffer)g_buffer_count) {
+        buf = g_buffers[buffer].buffer;
     }
-    if (buffer >= (R_Buffer)g_buffer_count) return;
-    GLuint buf = g_buffers[buffer].buffer;
     if (target == R_BUF_ELEMENT) {
         g_gl.bound_ibo = buf;
+        if (buf && g_gl.bound_vao && g_gl.bound_vao_idx >= 0) {
+            g_vaos[g_gl.bound_vao_idx].ibo = buf;
+        }
     } else {
         g_gl.bound_vbo = buf;
+        if (buf && g_gl.bound_vao && g_gl.bound_vao_idx >= 0) {
+            g_vaos[g_gl.bound_vao_idx].vbo = buf;
+        }
     }
-    /* For VAO-bound rendering, binding happens in draw calls */
 }
 
 void renderer_buffer_data(R_BufferTarget target, size_t size, const void *data, R_Usage usage) {
@@ -630,16 +661,33 @@ void renderer_buffer_sub_data(R_BufferTarget target, size_t offset, size_t size,
 }
 
 void renderer_get_buffer_sub_data(R_BufferTarget target, size_t offset, size_t size, void *data) {
-    (void)target;
-    (void)offset;
-    (void)size;
-    (void)data;
+    R_Buffer handle;
+    if (target == R_BUF_ELEMENT) {
+        handle = g_gl.bound_ibo;
+    } else {
+        handle = g_gl.bound_vbo;
+    }
+    int idx = -1;
+    for (int i = 0; i < g_buffer_count; i++) {
+        if (g_buffers[i].buffer == (GLuint)handle) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return;
+    glGetNamedBufferSubData(g_buffers[idx].buffer, (GLintptr)offset, (GLsizeiptr)size, data);
 }
 
 void renderer_bind_buffer_base(R_BufferTarget target, int index, R_Buffer buffer) {
-    (void)target;
-    (void)index;
-    (void)buffer;
+    if (buffer >= (R_Buffer)g_buffer_count) return;
+    GLuint buf = g_buffers[buffer].buffer;
+    GLenum gl_target;
+    switch (target) {
+        case R_BUF_SHADER_STORAGE: gl_target = GL_SHADER_STORAGE_BUFFER; break;
+        case R_BUF_ATOMIC_COUNTER: gl_target = GL_ATOMIC_COUNTER_BUFFER; break;
+        default: return;
+    }
+    glBindBuffersBase(gl_target, index, 1, &buf);
 }
 
 /* ============================================================================
@@ -647,11 +695,18 @@ void renderer_bind_buffer_base(R_BufferTarget target, int index, R_Buffer buffer
  * ============================================================================ */
 
 R_VAO renderer_create_vao(void) {
+    if (g_vao_free_count > 0) {
+        int idx = g_vao_free_list[--g_vao_free_count];
+        GLuint vao;
+        glCreateVertexArrays(1, &vao);
+        g_vaos[idx] = (GLVAO){vao, 0, 0, 0};
+        return (R_VAO)idx;
+    }
     if (g_vao_count >= R_MAX_VAO) return R_INVALID_HANDLE;
     GLuint vao;
     glCreateVertexArrays(1, &vao);
     int idx = g_vao_count++;
-    g_vaos[idx] = (GLVAO){vao, 0};
+    g_vaos[idx] = (GLVAO){vao, 0, 0, 0};
     return (R_VAO)idx;
 }
 
@@ -660,18 +715,23 @@ void renderer_destroy_vao(R_VAO vao) {
     if (g_vaos[vao].vao) {
         glDeleteVertexArrays(1, &g_vaos[vao].vao);
         g_vaos[vao].vao = 0;
+        if (g_vao_free_count < R_MAX_VAO) {
+            g_vao_free_list[g_vao_free_count++] = (int)vao;
+        }
     }
 }
 
 void renderer_bind_vao(R_VAO vao) {
     if (vao == R_INVALID_HANDLE) {
         g_gl.bound_vao = 0;
+        g_gl.bound_vao_idx = -1;
         glBindVertexArray(0);
         return;
     }
     if (vao >= (R_VAO)g_vao_count) return;
     GLuint va = g_vaos[vao].vao;
     g_gl.bound_vao = va;
+    g_gl.bound_vao_idx = vao;
     glBindVertexArray(va);
 }
 
@@ -704,6 +764,13 @@ void renderer_enable_attrib(int index) {
  * ============================================================================ */
 
 R_Texture renderer_create_texture(void) {
+    if (g_texture_free_count > 0) {
+        int idx = g_texture_free_list[--g_texture_free_count];
+        GLuint tex;
+        glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+        g_textures[idx] = (GLTexture){tex, 0, 0, 0};
+        return (R_Texture)idx;
+    }
     if (g_texture_count >= R_MAX_TEXTURES) return R_INVALID_HANDLE;
     GLuint tex;
     glCreateTextures(GL_TEXTURE_2D, 1, &tex);
@@ -717,17 +784,18 @@ void renderer_destroy_texture(R_Texture texture) {
     if (g_textures[texture].texture) {
         glDeleteTextures(1, &g_textures[texture].texture);
         g_textures[texture].texture = 0;
+        if (g_texture_free_count < R_MAX_TEXTURES) {
+            g_texture_free_list[g_texture_free_count++] = (int)texture;
+        }
     }
 }
 
 void renderer_bind_texture(R_TextureTarget target, R_Texture texture) {
+    (void)target;
     if (texture >= (R_Texture)g_texture_count) return;
     GLuint tex = (texture == R_INVALID_HANDLE) ? 0 : g_textures[texture].texture;
-    GLenum gl_target = target_to_gl(target);
     g_gl.bound_textures[g_gl.active_texture_unit] = tex;
-    if (tex) {
-        glBindTexture(gl_target, tex);
-    }
+    glBindTextureUnit(g_gl.active_texture_unit, tex);
 }
 
 void renderer_active_texture(int unit) {
@@ -785,18 +853,22 @@ void renderer_tex_image_3d(int width, int height, int depth, const void *data) {
     }
 
     if (data) {
-        glTextureSubImage3D(tex, 0, 0, 0, 0, width, height, depth, GL_RED_INTEGER, GL_UNSIGNED_BYTE, data);
+        glTextureSubImage3D(tex, 0, 0, 0, 0, width, height, depth, GL_RED, GL_UNSIGNED_BYTE, data);
     }
 }
 
 void renderer_tex_sub_image_3d(int x, int y, int z, int width, int height, int depth, const void *data) {
-    (void)x;
-    (void)y;
-    (void)z;
-    (void)width;
-    (void)height;
-    (void)depth;
-    (void)data;
+    R_Texture tex = g_gl.bound_textures[g_gl.active_texture_unit];
+    if (tex == 0 || !data) return;
+    int idx = -1;
+    for (int i = 0; i < g_texture_count; i++) {
+        if (g_textures[i].texture == tex) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return;
+    glTextureSubImage3D(tex, 0, x, y, z, width, height, depth, GL_RED, GL_UNSIGNED_BYTE, data);
 }
 
 void renderer_tex_param(R_TextureTarget target, R_TexParam param, R_TexValue value) {
@@ -816,9 +888,10 @@ void renderer_generate_mipmap(void) {
 }
 
 void renderer_bind_image_texture(int unit, R_Texture texture, R_Access access) {
-    (void)unit;
-    (void)texture;
     (void)access;
+    if (texture >= (R_Texture)g_texture_count) return;
+    GLuint tex = (texture == R_INVALID_HANDLE) ? 0 : g_textures[texture].texture;
+    glBindImageTextures(unit, 1, &tex);
 }
 
 /* ============================================================================
@@ -826,34 +899,34 @@ void renderer_bind_image_texture(int unit, R_Texture texture, R_Access access) {
  * ============================================================================ */
 
 void renderer_draw_arrays(R_Primitive primitive, int first, int count) {
-    if (g_gl.bound_vao && g_gl.bound_vbo) {
-        int stride = 0;
-        for (int i = 0; i < g_vao_count; i++) {
-            if (g_vaos[i].vao == g_gl.bound_vao) {
-                stride = g_vaos[i].stride;
-                break;
-            }
-        }
-        glVertexArrayVertexBuffer(g_gl.bound_vao, 0, g_gl.bound_vbo, 0, stride);
+    GLuint vbo = g_gl.bound_vbo;
+    if (!vbo && g_gl.bound_vao && g_gl.bound_vao_idx >= 0) {
+        vbo = g_vaos[g_gl.bound_vao_idx].vbo;
+    }
+    if (g_gl.bound_vao && vbo) {
+        int stride = (g_gl.bound_vao_idx >= 0) ? g_vaos[g_gl.bound_vao_idx].stride : 0;
+        glVertexArrayVertexBuffer(g_gl.bound_vao, 0, vbo, 0, stride);
     }
     glDrawArrays(primitive_to_gl(primitive), first, count);
 }
 
 void renderer_draw_elements(R_Primitive primitive, int count, int offset) {
-    if (g_gl.bound_vao && g_gl.bound_vbo) {
-        int stride = 0;
-        for (int i = 0; i < g_vao_count; i++) {
-            if (g_vaos[i].vao == g_gl.bound_vao) {
-                stride = g_vaos[i].stride;
-                break;
-            }
-        }
-        glVertexArrayVertexBuffer(g_gl.bound_vao, 0, g_gl.bound_vbo, 0, stride);
+    GLuint vbo = g_gl.bound_vbo;
+    GLuint ibo = g_gl.bound_ibo;
+    if (!vbo && g_gl.bound_vao && g_gl.bound_vao_idx >= 0) {
+        vbo = g_vaos[g_gl.bound_vao_idx].vbo;
     }
-    if (g_gl.bound_vao && g_gl.bound_ibo) {
-        glVertexArrayElementBuffer(g_gl.bound_vao, g_gl.bound_ibo);
+    if (!ibo && g_gl.bound_vao && g_gl.bound_vao_idx >= 0) {
+        ibo = g_vaos[g_gl.bound_vao_idx].ibo;
     }
-    glDrawElements(primitive_to_gl(primitive), count, GL_UNSIGNED_SHORT, (const void *)(intptr_t)offset);
+    if (g_gl.bound_vao && vbo) {
+        int stride = (g_gl.bound_vao_idx >= 0) ? g_vaos[g_gl.bound_vao_idx].stride : 0;
+        glVertexArrayVertexBuffer(g_gl.bound_vao, 0, vbo, 0, stride);
+    }
+    if (g_gl.bound_vao && ibo) {
+        glVertexArrayElementBuffer(g_gl.bound_vao, ibo);
+    }
+    glDrawElements(primitive_to_gl(primitive), count, GL_UNSIGNED_SHORT, (const void *)(intptr_t)(offset * (int)sizeof(uint16_t)));
 }
 
 void renderer_draw_arrays_indirect(void) {

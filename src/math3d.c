@@ -38,8 +38,13 @@ mat4 mat4_perspective(float fov, float aspect, float near, float far) {
     float tan_half_fov = tanf(fov / 2.0f);
     m.m[0] = 1.0f / (aspect * tan_half_fov);
     m.m[5] = 1.0f / tan_half_fov;
+#ifdef RENDERER_OPENGL
+    m.m[10] = -(far + near) / (far - near);
+    m.m[14] = -2.0f * far * near / (far - near);
+#else
     m.m[10] = -far / (far - near);
     m.m[14] = -(far * near) / (far - near);
+#endif
     m.m[11] = -1.0f;
     return m;
 }

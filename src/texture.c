@@ -1,16 +1,22 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "texture.h"
 #include "logger.h"
+#include "platform/platform.h"
 #include <stb/stb_image.h>
 #include <stdio.h>
 
 R_Texture texture_load(const char *path) {
+    char *resolved = platform_resolve_path(path);
+    if (!resolved) return R_INVALID_HANDLE;
+
     int width, height, channels;
-    unsigned char *data = stbi_load(path, &width, &height, &channels, 0);
+    unsigned char *data = stbi_load(resolved, &width, &height, &channels, 0);
     if (!data) {
-        LOG_ERROR(CAT_RENDERER, "Failed to load texture: %s", path);
+        LOG_ERROR(CAT_RENDERER, "Failed to load texture: %s", resolved);
+        free(resolved);
         return R_INVALID_HANDLE;
     }
+    free(resolved);
 
     R_Texture texture = renderer_create_texture();
     renderer_bind_texture(R_TEX_2D, texture);

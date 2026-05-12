@@ -61,6 +61,9 @@ COMMON_SRCS = \
 	$(SRC_DIR)/world.c \
 	$(SRC_DIR)/texture.c \
 	$(SRC_DIR)/ui.c \
+	$(SRC_DIR)/ecs.c \
+	$(SRC_DIR)/components.c \
+	$(SRC_DIR)/systems.c \
 	$(SRC_DIR)/logger.c \
 	$(SRC_DIR)/platform/platform.c \
 	$(SRC_DIR)/platform/platform_x11.c \

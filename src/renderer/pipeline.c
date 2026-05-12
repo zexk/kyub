@@ -7,9 +7,13 @@ char* load_spirv_file(const char *path, size_t *out_size) {
     char spv_path[256];
     snprintf(spv_path, sizeof(spv_path), "%s.spv", path);
 
-    FILE *f = fopen(spv_path, "rb");
+    char *resolved = platform_resolve_path(spv_path);
+    if (!resolved) return NULL;
+
+    FILE *f = fopen(resolved, "rb");
     if (!f) {
-        fprintf(stderr, "Failed to open shader: %s\n", spv_path);
+        fprintf(stderr, "Failed to open shader: %s\n", resolved);
+        free(resolved);
         return NULL;
     }
 
@@ -18,25 +22,29 @@ char* load_spirv_file(const char *path, size_t *out_size) {
     fseek(f, 0, SEEK_SET);
 
     if (size <= 0) {
-        fprintf(stderr, "Invalid shader file size: %s (size=%ld)\n", spv_path, size);
+        fprintf(stderr, "Invalid shader file size: %s (size=%ld)\n", resolved, size);
         fclose(f);
+        free(resolved);
         return NULL;
     }
 
     char *buf = malloc((size_t)size);
     if (!buf) {
-        fprintf(stderr, "Failed to allocate shader buffer: %s\n", spv_path);
+        fprintf(stderr, "Failed to allocate shader buffer: %s\n", resolved);
         fclose(f);
+        free(resolved);
         return NULL;
     }
 
     if (fread(buf, 1, (size_t)size, f) != (size_t)size) {
-        fprintf(stderr, "Failed to read shader: %s\n", spv_path);
+        fprintf(stderr, "Failed to read shader: %s\n", resolved);
         free(buf);
         fclose(f);
+        free(resolved);
         return NULL;
     }
     fclose(f);
+    free(resolved);
     *out_size = (size_t)size;
     return buf;
 }
