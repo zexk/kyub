@@ -1,5 +1,4 @@
 #define _POSIX_C_SOURCE 199309L
-#define NK_IMPLEMENTATION
 #include "common.h"
 #include "renderer/renderer.h"
 #include "voxel.h"
@@ -7,10 +6,8 @@
 #include "math3d.h"
 #include "camera.h"
 #include "platform/game_input.h"
-#include "platform/nk_platform.h"
 #include "world.h"
 #include "texture.h"
-#include "ui.h"
 #include "platform/platform.h"
 #include "logger.h"
 #include "ecs.h"
@@ -23,6 +20,7 @@
 #include <execinfo.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -201,6 +199,35 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(hud_vao);
 
+    /* Hotbar: 7 placeable block slots at bottom of screen */
+    R_VAO hotbar_vao = renderer_create_vao();
+    R_Buffer hotbar_vbo = renderer_create_buffer();
+#define HOTBAR_SLOTS 7
+#define HOTBAR_SQUARE_SIZE 0.07f
+#define HOTBAR_GAP 0.015f
+    float hotbar_total_w = HOTBAR_SLOTS * HOTBAR_SQUARE_SIZE + (HOTBAR_SLOTS - 1) * HOTBAR_GAP;
+    float hotbar_start_x = -hotbar_total_w / 2.0f;
+    float hotbar_y0 = -0.93f;
+    float hotbar_y1 = hotbar_y0 + HOTBAR_SQUARE_SIZE;
+    float hotbar_verts[HOTBAR_SLOTS * 6 * 2];
+    for (int i = 0; i < HOTBAR_SLOTS; i++) {
+        float x0 = hotbar_start_x + i * (HOTBAR_SQUARE_SIZE + HOTBAR_GAP);
+        float x1 = x0 + HOTBAR_SQUARE_SIZE;
+        int vi = i * 12; /* 6 vertices * 2 floats */
+        hotbar_verts[vi+0]  = x0; hotbar_verts[vi+1]  = hotbar_y0;
+        hotbar_verts[vi+2]  = x1; hotbar_verts[vi+3]  = hotbar_y0;
+        hotbar_verts[vi+4]  = x1; hotbar_verts[vi+5]  = hotbar_y1;
+        hotbar_verts[vi+6]  = x0; hotbar_verts[vi+7]  = hotbar_y0;
+        hotbar_verts[vi+8]  = x1; hotbar_verts[vi+9]  = hotbar_y1;
+        hotbar_verts[vi+10] = x0; hotbar_verts[vi+11] = hotbar_y1;
+    }
+    renderer_bind_vao(hotbar_vao);
+    renderer_bind_buffer(R_BUF_ARRAY, hotbar_vbo);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(hotbar_verts), hotbar_verts, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
+    renderer_enable_attrib(0);
+    renderer_bind_vao(R_INVALID_HANDLE);
+
     R_Texture atlas = texture_load("assets/atlas.png");
     if (atlas == R_INVALID_HANDLE) {
         fprintf(stderr, "Failed to load atlas texture\n");
@@ -240,9 +267,8 @@ int main(void) {
     LOG_INFO(CAT_PLATFORM, "Spawn position set to y=%.2f (ground at y=%d)",
              player_transform ? player_transform->position.y : 20.0f, ground_y);
 
-    UI ui;
-    ui.render_distance = world.render_distance;
-    ui_init(&ui, WINDOW_WIDTH, WINDOW_HEIGHT);
+    BlockType selected_block = BLOCK_STONE;
+    int render_distance = world.render_distance;
 
     platform_hide_cursor(true);
     platform_grab_mouse(true);
@@ -265,16 +291,12 @@ int main(void) {
         double dt = now - last_time;
         last_time = now;
 
-        nk_platform_begin_frame();
-
         Event event;
         while (platform_poll_event(&event)) {
-            nk_platform_handle_event(&event);
             game_input_handle_event(&game_input, &event);
 
             switch (event.type) {
                 case EVENT_KEY_DOWN:
-                    if (event.key.key == 'p') ui.visible = !ui.visible;
                     if (event.key.key == 't' || event.key.key == 0x1B) {
                         paused = !paused;
                         platform_hide_cursor(!paused);
@@ -292,6 +314,14 @@ int main(void) {
                         }
                     }
                     break;
+                case EVENT_SCROLL:
+                    if (event.scroll.dy != 0) {
+                        int next = (int)selected_block + (event.scroll.dy > 0 ? 1 : -1);
+                        if (next > BLOCK_LEAVES) next = BLOCK_DIRT;
+                        if (next < BLOCK_DIRT)  next = BLOCK_LEAVES;
+                        selected_block = (BlockType)next;
+                    }
+                    break;
                 case EVENT_RESIZE:
                     win_width = event.resize.width;
                     win_height = event.resize.height;
@@ -304,8 +334,6 @@ int main(void) {
                     break;
             }
         }
-
-        nk_platform_end_frame();
 
 #ifdef ENABLE_LOGGER
         if (game_input.keys['w'] || game_input.keys['a'] || game_input.keys['s'] || game_input.keys['d']) {
@@ -323,8 +351,6 @@ int main(void) {
 #else
 #define LOG_TIMING(name) ((void)0)
 #endif
-
-        LOG_TIMING("nk_input");
 
         if (paused) {
             static bool prev_pause_click = false;
@@ -371,8 +397,8 @@ int main(void) {
                     LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d, prev=%d,%d,%d type=%d",
                               hit.x, hit.y, hit.z, prev.x, prev.y, prev.z, prev_b);
                     if (prev_b == BLOCK_AIR) {
-                        LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev.x, prev.y, prev.z, ui.selected_block);
-                        world_set_block(&world, prev.x, prev.y, prev.z, ui.selected_block);
+                        LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev.x, prev.y, prev.z, selected_block);
+                        world_set_block(&world, prev.x, prev.y, prev.z, selected_block);
                     }
                 } else {
                     LOG_DEBUG(CAT_WORLD, "Place no block hit in range");
@@ -488,8 +514,25 @@ int main(void) {
         int hud_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
         renderer_uniform_float(hud_alpha_loc, 1.0f);
         renderer_draw_arrays(R_PRIM_LINES, 0, 4);
-        renderer_use_program(R_INVALID_HANDLE);
+
+        /* Hotbar */
+        int hb_color_loc = renderer_uniform_location(hud_program, "uColor");
+        int hb_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
+        renderer_uniform_float(hb_alpha_loc, 1.0f);
+        renderer_bind_vao(hotbar_vao);
+        renderer_bind_buffer(R_BUF_ARRAY, hotbar_vbo);
+        for (int i = 0; i < HOTBAR_SLOTS; i++) {
+            BlockType slot_type = (BlockType)(BLOCK_DIRT + i);
+            if (slot_type == selected_block) {
+                renderer_uniform_vec3(hb_color_loc, 1.0f, 1.0f, 1.0f);
+            } else {
+                renderer_uniform_vec3(hb_color_loc, 0.3f, 0.3f, 0.3f);
+            }
+            renderer_draw_arrays(R_PRIM_TRIANGLES, i * 6, 6);
+        }
         renderer_bind_vao(R_INVALID_HANDLE);
+
+        renderer_use_program(R_INVALID_HANDLE);
         renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
 
         if (paused) {
@@ -513,11 +556,10 @@ int main(void) {
             if (world.chunks[i].active) active_chunks++;
         }
         if (now - last_fps_update >= 0.5) {
-            ui_set_stats(&ui, (int)(1.0f / dt + 0.5f), active_chunks, cam_pos, camera.front, camera.yaw, camera.pitch);
             last_fps_update = now;
         }
 
-        world.render_distance = ui.render_distance;
+        world.render_distance = render_distance;
 
         renderer_enable(R_CAP_DEPTH_TEST);
         LOG_TIMING("rendering");
@@ -525,10 +567,7 @@ int main(void) {
         renderer_swap();
         LOG_TIMING("renderer_swap");
 
-        ui_render(&ui, win_width, win_height);
-        LOG_TIMING("ui_render");
-
-        renderer_swap_interval(ui.fps_unlimited ? 0 : 1);
+        renderer_swap_interval(0);
         LOG_TIMING("swap_interval");
 
 #ifdef ENABLE_LOGGER
@@ -540,7 +579,6 @@ int main(void) {
 #endif
     }
 
-    ui_shutdown(&ui);
     world_free(&world);
     renderer_destroy_program(shader_program);
     renderer_destroy_program(hud_program);
@@ -556,6 +594,8 @@ int main(void) {
     renderer_destroy_buffer(button_vbo);
     renderer_destroy_vao(hud_vao);
     renderer_destroy_buffer(hud_vbo);
+    renderer_destroy_vao(hotbar_vao);
+    renderer_destroy_buffer(hotbar_vbo);
     renderer_destroy_texture(atlas);
     renderer_shutdown();
     ecs_shutdown(&g_ecs);
