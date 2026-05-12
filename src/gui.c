@@ -42,8 +42,8 @@ static void gui_fill_rect(Gui *gui, float x, float y, float w, float h, float r,
     float x1 = gui_ndc_x(gui, x + w);
     float y1 = gui_ndc_y(gui, y + h);
     float verts[] = {
-        x0, y0,  x1, y0,  x1, y1,
-        x0, y0,  x1, y1,  x0, y1,
+        x0, y0,  x1, y1,  x1, y0,
+        x0, y0,  x0, y1,  x1, y1,
     };
     gui_draw_triangles(gui, verts, 6, r, g, b, a);
 }

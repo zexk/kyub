@@ -114,6 +114,7 @@ extern float g_clear_color[4];
 extern bool g_clear_depth;
 
 typedef struct {
+    R_Program program;
     char name[64];
     int offset;
 } UniformMapping;
