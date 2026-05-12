@@ -8,7 +8,7 @@ typedef struct {
     float x, y, z, w;
     float r, g, b, a;
     float nx, ny, nz, ao;
-    float u, v, p1, p2;
+    float u, v, texture_layer, p2;
 } Vertex;
 
 typedef struct {

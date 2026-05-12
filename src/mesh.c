@@ -21,7 +21,7 @@ void mesh_init(Mesh *mesh) {
 
 #define EPSILON 0.002f  // Larger offset to prevent z-fighting gaps
 
-static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, float b, float nx, float ny, float nz, float ao, float u, float v) {
+static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, float b, float nx, float ny, float nz, float ao, float u, float v, float tex_layer) {
     if (mesh->vertex_count >= mesh->vertex_capacity) {
         mesh->vertex_capacity *= 2;
         Vertex *new_vertices = realloc(mesh->vertices, sizeof(Vertex) * mesh->vertex_capacity);
@@ -36,25 +36,19 @@ static void add_vertex(Mesh *mesh, float x, float y, float z, float r, float g, 
         .x = x, .y = y, .z = z, .w = 1.0f,
         .r = r, .g = g, .b = b, .a = 1.0f,
         .nx = nx, .ny = ny, .nz = nz, .ao = ao,
-        .u = u, .v = v, .p1 = 0, .p2 = 0
+        .u = u, .v = v, .texture_layer = tex_layer, .p2 = 0
     };
 }
 
-typedef struct { float r, g, b; } Color;
-
-typedef struct { float u_off, v_off, w, h; } UVRect;
-
-static UVRect get_uv_rect(BlockType type) {
-    float padding = 0.006f;  // ~2 pixel padding to prevent seams
+static int get_texture_layer(BlockType type, int face) {
     Entity e = g_block_entities[type];
     C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
-    if (!def) return (UVRect){0, 0, 0, 0};
-    return (UVRect){
-        def->uv_u + padding,
-        def->uv_v + padding,
-        def->uv_w - (padding * 2),
-        def->uv_h - (padding * 2)
-    };
+    if (!def) return 0;
+    switch (face) {
+        case 4: return def->layer_top >= 0 ? def->layer_top : def->layer_default;
+        case 5: return def->layer_bottom >= 0 ? def->layer_bottom : def->layer_default;
+        default: return def->layer_side >= 0 ? def->layer_side : def->layer_default;
+    }
 }
 
 static bool is_opaque(BlockType type) {
@@ -82,8 +76,9 @@ static void add_face(Mesh *mesh, const Chunk *chunk, int x, int y, int z, int fa
     float ox = (float)(x + chunk->x * CHUNK_SIZE);
     float oy = (float)y;
     float oz = (float)(z + chunk->z * CHUNK_SIZE);
-    Color c = {1.0f, 1.0f, 1.0f};
-    UVRect uv = get_uv_rect(type);
+    int layer = get_texture_layer(type, face);
+    float pad = 0.001f;
+    float u0 = pad, v0 = pad, u1 = 1.0f - pad, v1 = 1.0f - pad;
 
     float p[4][3];
     float nx=0, ny=0, nz=0;
@@ -134,12 +129,12 @@ static void add_face(Mesh *mesh, const Chunk *chunk, int x, int y, int z, int fa
         ao[3] = vertex_ao(!is_transparent(chunk, x-1, y, z+1), !is_transparent(chunk, x, y, z+2), !is_transparent(chunk, x-1, y, z+2));
     }
 
-    add_vertex(mesh, p[0][0], p[0][1], p[0][2], c.r, c.g, c.b, nx, ny, nz, ao[0], uv.u_off, uv.v_off);
-    add_vertex(mesh, p[1][0], p[1][1], p[1][2], c.r, c.g, c.b, nx, ny, nz, ao[1], uv.u_off + uv.w, uv.v_off);
-    add_vertex(mesh, p[2][0], p[2][1], p[2][2], c.r, c.g, c.b, nx, ny, nz, ao[2], uv.u_off + uv.w, uv.v_off + uv.h);
-    add_vertex(mesh, p[0][0], p[0][1], p[0][2], c.r, c.g, c.b, nx, ny, nz, ao[0], uv.u_off, uv.v_off);
-    add_vertex(mesh, p[2][0], p[2][1], p[2][2], c.r, c.g, c.b, nx, ny, nz, ao[2], uv.u_off + uv.w, uv.v_off + uv.h);
-    add_vertex(mesh, p[3][0], p[3][1], p[3][2], c.r, c.g, c.b, nx, ny, nz, ao[3], uv.u_off, uv.v_off + uv.h);
+    add_vertex(mesh, p[0][0], p[0][1], p[0][2], 1.0f, 1.0f, 1.0f, nx, ny, nz, ao[0], u0, v0, (float)layer);
+    add_vertex(mesh, p[1][0], p[1][1], p[1][2], 1.0f, 1.0f, 1.0f, nx, ny, nz, ao[1], u1, v0, (float)layer);
+    add_vertex(mesh, p[2][0], p[2][1], p[2][2], 1.0f, 1.0f, 1.0f, nx, ny, nz, ao[2], u1, v1, (float)layer);
+    add_vertex(mesh, p[0][0], p[0][1], p[0][2], 1.0f, 1.0f, 1.0f, nx, ny, nz, ao[0], u0, v0, (float)layer);
+    add_vertex(mesh, p[2][0], p[2][1], p[2][2], 1.0f, 1.0f, 1.0f, nx, ny, nz, ao[2], u1, v1, (float)layer);
+    add_vertex(mesh, p[3][0], p[3][1], p[3][2], 1.0f, 1.0f, 1.0f, nx, ny, nz, ao[3], u0, v1, (float)layer);
 }
 
 void mesh_generate_gpu(Mesh *mesh, R_Program compute_program, R_Texture voxel_tex, int chunk_x, int chunk_z) {
@@ -200,6 +195,8 @@ static void mesh_setup_attribs(void) {
     renderer_enable_attrib(3);
     renderer_attrib_pointer(4, 2, R_TYPE_FLOAT, false, sizeof(Vertex), 12 * sizeof(float));
     renderer_enable_attrib(4);
+    renderer_attrib_pointer(5, 1, R_TYPE_FLOAT, false, sizeof(Vertex), 14 * sizeof(float));
+    renderer_enable_attrib(5);
 }
 
 void mesh_upload(Mesh *mesh) {

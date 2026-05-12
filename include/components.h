@@ -28,8 +28,15 @@ typedef struct {
     const char *name;
     bool  solid;
     bool  opaque;
-    float uv_u, uv_v, uv_w, uv_h;
     float hardness;
+    const char *tex_path;     /* default texture path */
+    const char *tex_top;      /* +Y face (NULL = use tex_path) */
+    const char *tex_bottom;   /* -Y face (NULL = use tex_path) */
+    const char *tex_side;     /* +/-X, +/-Z faces (NULL = use tex_path) */
+    int layer_default;        /* resolved layer index for default */
+    int layer_top;            /* resolved layer index for top */
+    int layer_bottom;         /* resolved layer index for bottom */
+    int layer_side;           /* resolved layer index for sides */
 } C_BlockDef;
 
 /* --- Movement: physics state --- */
@@ -50,6 +57,7 @@ void components_init(ECS *ecs);
 
 /* Register one block type as a static entity */
 Entity register_block_type(ECS *ecs, BlockType type, const char *name, bool solid, bool opaque,
-                            float u, float v, float w, float h, float hardness);
+                            float hardness, const char *tex_path,
+                            const char *tex_top, const char *tex_bottom, const char *tex_side);
 
 #endif // COMPONENTS_H

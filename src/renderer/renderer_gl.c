@@ -779,6 +779,39 @@ R_Texture renderer_create_texture(void) {
     return (R_Texture)idx;
 }
 
+R_Texture renderer_create_texture_array(int width, int height, int layers) {
+    if (g_texture_free_count > 0) {
+        int idx = g_texture_free_list[--g_texture_free_count];
+        GLuint tex;
+        glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &tex);
+        glTextureStorage3D(tex, 1, GL_RGBA8, width, height, layers);
+        g_textures[idx] = (GLTexture){tex, (uint32_t)width, (uint32_t)height, (uint32_t)layers};
+        return (R_Texture)idx;
+    }
+    if (g_texture_count >= R_MAX_TEXTURES) return R_INVALID_HANDLE;
+    GLuint tex;
+    glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &tex);
+    glTextureStorage3D(tex, 1, GL_RGBA8, width, height, layers);
+    int idx = g_texture_count++;
+    g_textures[idx] = (GLTexture){tex, (uint32_t)width, (uint32_t)height, (uint32_t)layers};
+    return (R_Texture)idx;
+}
+
+void renderer_tex_sub_image_array(int layer, int width, int height, const void *data) {
+    R_Texture tex_handle = (R_Texture)g_gl.bound_textures[g_gl.active_texture_unit];
+    if (tex_handle == 0 || !data) return;
+    int idx = -1;
+    for (int i = 0; i < g_texture_count; i++) {
+        if (g_textures[i].texture == (GLuint)tex_handle) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return;
+    GLuint tex = g_textures[idx].texture;
+    glTextureSubImage3D(tex, 0, 0, 0, layer, width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, data);
+}
+
 void renderer_destroy_texture(R_Texture texture) {
     if (texture >= (R_Texture)g_texture_count) return;
     if (g_textures[texture].texture) {

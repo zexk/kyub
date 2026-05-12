@@ -181,6 +181,8 @@ R_Texture renderer_create_texture(void);
 void renderer_destroy_texture(R_Texture texture);
 void renderer_bind_texture(R_TextureTarget target, R_Texture texture);
 void renderer_active_texture(int unit);
+R_Texture renderer_create_texture_array(int width, int height, int layers);
+void renderer_tex_sub_image_array(int layer, int width, int height, const void *data);
 void renderer_tex_image_2d(int width, int height, const void *data);
 void renderer_tex_image_3d(int width, int height, int depth, const void *data);
 void renderer_tex_sub_image_3d(int x, int y, int z, int width, int height, int depth, const void *data);

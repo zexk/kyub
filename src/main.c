@@ -114,14 +114,55 @@ int main(void) {
     components_init(&g_ecs);
     memset(g_block_entities, 0, sizeof(g_block_entities));
 
-    register_block_type(&g_ecs, BLOCK_AIR,    "Air",    false, false, 0.0f,    0.0f,    0.0f,    0.0f,    0.0f);
-    register_block_type(&g_ecs, BLOCK_DIRT,   "Dirt",   true,  true,  0.0625f, 0.0f,    0.0625f, 0.0625f, 1.0f);
-    register_block_type(&g_ecs, BLOCK_GRASS,  "Grass",  true,  true,  0.0f,    0.0625f, 0.0625f, 0.0625f, 1.0f);
-    register_block_type(&g_ecs, BLOCK_STONE,  "Stone",  true,  true,  0.0625f, 0.0625f, 0.0625f, 0.0625f, 2.0f);
-    register_block_type(&g_ecs, BLOCK_SAND,   "Sand",   true,  true,  0.125f,  0.0f,    0.0625f, 0.0625f, 1.0f);
-    register_block_type(&g_ecs, BLOCK_GRAVEL, "Gravel", true,  true,  0.125f,  0.0625f, 0.0625f, 0.0625f, 1.0f);
-    register_block_type(&g_ecs, BLOCK_WOOD,   "Wood",   true,  true,  0.0f,    0.125f,  0.0625f, 0.0625f, 2.0f);
-    register_block_type(&g_ecs, BLOCK_LEAVES, "Leaves", true,  false, 0.0625f, 0.125f,  0.0625f, 0.0625f, 0.5f);
+    register_block_type(&g_ecs, BLOCK_AIR,    "Air",    false, false, 0.0f, NULL, NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_DIRT,   "Dirt",   true,  true,  1.0f, "assets/textures/dirt.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_GRASS,  "Grass",  true,  true,  1.0f, "assets/textures/dirt.png", "assets/textures/grass_top.png", "assets/textures/dirt.png", "assets/textures/grass_side.png");
+    register_block_type(&g_ecs, BLOCK_STONE,  "Stone",  true,  true,  2.0f, "assets/textures/stone.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_SAND,   "Sand",   true,  true,  1.0f, "assets/textures/sand.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_GRAVEL, "Gravel", true,  true,  1.0f, "assets/textures/gravel.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_WOOD,   "Wood",   true,  true,  2.0f, "assets/textures/wood.png", NULL, NULL, NULL);
+    register_block_type(&g_ecs, BLOCK_LEAVES, "Leaves", true,  false, 0.5f, "assets/textures/leaves.png", NULL, NULL, NULL);
+
+    /* Collect unique texture paths and build texture array */
+    const char *tex_paths[32];
+    int tex_path_count = 0;
+    for (int t = 0; t < 256; t++) {
+        Entity e = g_block_entities[t];
+        if (!e) continue;
+        C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
+        if (!def) continue;
+        const char *paths[4] = {def->tex_path, def->tex_top, def->tex_bottom, def->tex_side};
+        for (int p = 0; p < 4; p++) {
+            if (!paths[p]) continue;
+            bool found = false;
+            for (int i = 0; i < tex_path_count; i++) {
+                if (strcmp(tex_paths[i], paths[p]) == 0) { found = true; break; }
+            }
+            if (!found && tex_path_count < 32) tex_paths[tex_path_count++] = paths[p];
+        }
+    }
+
+    R_Texture tex_array = texture_load_array(tex_paths, tex_path_count, 16, 16);
+    if (tex_array == R_INVALID_HANDLE) {
+        fprintf(stderr, "Failed to load block texture array\n");
+        return 1;
+    }
+
+    /* Resolve texture layer indices per block face */
+    for (int t = 0; t < 256; t++) {
+        Entity e = g_block_entities[t];
+        if (!e) continue;
+        C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
+        if (!def) continue;
+        const char *paths[4] = {def->tex_path, def->tex_top, def->tex_bottom, def->tex_side};
+        int *layers[4] = {&def->layer_default, &def->layer_top, &def->layer_bottom, &def->layer_side};
+        for (int p = 0; p < 4; p++) {
+            if (!paths[p]) continue;
+            for (int i = 0; i < tex_path_count; i++) {
+                if (strcmp(tex_paths[i], paths[p]) == 0) { *layers[p] = i; break; }
+            }
+        }
+    }
 
     R_Program shader_program = renderer_create_program("build/shaders/basic", "build/shaders/basic");
     if (shader_program == R_INVALID_HANDLE) return 1;
@@ -227,12 +268,6 @@ int main(void) {
     renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
-
-    R_Texture atlas = texture_load("assets/atlas.png");
-    if (atlas == R_INVALID_HANDLE) {
-        fprintf(stderr, "Failed to load atlas texture\n");
-        return 1;
-    }
 
     World world;
     world_init(&world, 2);
@@ -426,7 +461,7 @@ int main(void) {
 
         renderer_use_program(shader_program);
         renderer_active_texture(0);
-        renderer_bind_texture(R_TEX_2D, atlas);
+        renderer_bind_texture(R_TEX_2D, tex_array);
         int tex_loc = renderer_uniform_location(shader_program, "uTexture");
         renderer_uniform_int(tex_loc, 0);
         int fog_color_loc = renderer_uniform_location(shader_program, "uFogColor");
@@ -596,7 +631,7 @@ int main(void) {
     renderer_destroy_buffer(hud_vbo);
     renderer_destroy_vao(hotbar_vao);
     renderer_destroy_buffer(hotbar_vbo);
-    renderer_destroy_texture(atlas);
+    renderer_destroy_texture(tex_array);
     renderer_shutdown();
     ecs_shutdown(&g_ecs);
 

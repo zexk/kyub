@@ -7,8 +7,9 @@ layout(location = 1) in vec3 Normal;
 layout(location = 2) in float AO;
 layout(location = 3) in vec2 TexCoord;
 layout(location = 4) in vec3 view_pos;
+layout(location = 5) in float TexLayer;
 
-layout(binding = 0) uniform sampler2D uTexture;
+layout(binding = 0) uniform sampler2DArray uTexture;
 
 uniform vec3 uFogColor;
 uniform float uFogDensity;
@@ -21,8 +22,8 @@ void main() {
     float ambient = 0.3;
     float light = min(ambient + diff, 1.0);
     
-    // Sample texture and combine with lighting and AO
-    vec4 texColor = texture(uTexture, TexCoord);
+    // Sample texture array and combine with lighting and AO
+    vec4 texColor = texture(uTexture, vec3(TexCoord, TexLayer));
     
     // Apply AO and lighting to the texture
     vec3 lit_color = texColor.rgb * light * AO;

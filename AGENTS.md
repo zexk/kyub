@@ -23,7 +23,7 @@ The binary is at `./build/kyub`.
 - `src/` - Main engine (main.c, renderer_vulkan.c/renderer_gl.c, voxel.c, mesh.c, world.c, etc.)
 - `include/` - Headers
 - `shaders/` - GLSL sources (separate .vert/.frag for Vulkan, .gl.vert/.gl.frag for OpenGL)
-- `assets/` - Textures (atlas.png)
+- `assets/` - Textures (`assets/textures/*.png`)
 
 ## Renderer Backends
 
@@ -48,6 +48,14 @@ The binary is at `./build/kyub`.
 - `src/components.c` - Game component definitions
 - `src/systems.c` - ECS systems (movement, etc.)
 - `src/math3d.c` - Math utilities (mat4, vec3, frustum)
+
+## Texture System
+
+- **GL_TEXTURE_2D_ARRAY**: All block textures loaded into a single texture array (16×16 per texture)
+- **Per-face layers**: Each block face (top/bottom/side) can use a different texture layer
+- **Path deduplication**: Unique texture paths are collected at init, each gets one array layer
+- **Texture location**: `assets/textures/*.png` (e.g., `dirt.png`, `grass_top.png`, `grass_side.png`)
+- **Fallback**: Missing textures log a warning and render as black for that face
 
 ## ECS Architecture
 
