@@ -29,6 +29,8 @@ mat4 mat4_translate(vec3 v);
 mat4 mat4_perspective(float fov, float aspect, float near, float far);
 mat4 mat4_lookat(vec3 eye, vec3 center, vec3 up);
 mat4 mat4_multiply(mat4 a, mat4 b);
+mat4 mat4_transpose(mat4 m);
+mat4 mat4_inverse(mat4 m);
 
 typedef struct {
     float a, b, c, d; // ax + by + cz + d = 0

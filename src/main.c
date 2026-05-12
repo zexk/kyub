@@ -139,24 +139,15 @@ int main(void) {
 
     R_VAO skybox_vao = renderer_create_vao();
     R_Buffer skybox_vbo = renderer_create_buffer();
-    float skybox_cube[] = {
-        -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
-        -1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
-         1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
-         1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
-        -1.0f,  1.0f, -1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
-        -1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
-        -1.0f, -1.0f,  1.0f,  -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,   1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
-         1.0f, -1.0f, -1.0f,   1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
-        -1.0f, -1.0f,  1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
-        -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,  1.0f,
+    float skybox_tri[] = {
+        -1.0f, -1.0f,
+         3.0f, -1.0f,
+        -1.0f,  3.0f,
     };
     renderer_bind_vao(skybox_vao);
     renderer_bind_buffer(R_BUF_ARRAY, skybox_vbo);
-    renderer_buffer_data(R_BUF_ARRAY, sizeof(skybox_cube), skybox_cube, R_USAGE_STATIC);
-    renderer_attrib_pointer(0, 3, R_TYPE_FLOAT, false, 12, 0);
+    renderer_buffer_data(R_BUF_ARRAY, sizeof(skybox_tri), skybox_tri, R_USAGE_STATIC);
+    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 8, 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
@@ -471,12 +462,16 @@ int main(void) {
         renderer_disable(R_CAP_CULL_FACE);
         renderer_use_program(skybox_program);
         mat4 skybox_projection = mat4_perspective(FOV_DEGREES * PI / 180.0f, (float)win_width / (float)win_height, NEAR_PLANE, FAR_PLANE);
-        int sb_proj_loc = renderer_uniform_location(skybox_program, "projection");
-        renderer_uniform_mat4(sb_proj_loc, skybox_projection.m);
-        int sb_view_loc = renderer_uniform_location(skybox_program, "view");
-        renderer_uniform_mat4(sb_view_loc, view.m);
+        mat4 inv_projection = mat4_inverse(skybox_projection);
+        mat4 view_rotation = view;
+        view_rotation.m[12] = 0; view_rotation.m[13] = 0; view_rotation.m[14] = 0;
+        mat4 inv_view_rotation = mat4_transpose(view_rotation);
+        int sb_inv_proj_loc = renderer_uniform_location(skybox_program, "inv_projection");
+        renderer_uniform_mat4(sb_inv_proj_loc, inv_projection.m);
+        int sb_inv_view_loc = renderer_uniform_location(skybox_program, "inv_view_rotation");
+        renderer_uniform_mat4(sb_inv_view_loc, inv_view_rotation.m);
         renderer_bind_vao(skybox_vao);
-        renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 36);
+        renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
         renderer_bind_vao(R_INVALID_HANDLE);
         renderer_enable(R_CAP_CULL_FACE);
         renderer_depth_func(R_FUNC_LESS);
