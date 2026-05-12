@@ -13,6 +13,7 @@
 #include "ecs.h"
 #include "components.h"
 #include "systems.h"
+#include "gui.h"
 #include <time.h>
 #include <unistd.h>
 #include <math.h>
@@ -48,6 +49,11 @@ static double get_time_s(void) {
 }
 
 typedef struct { int x, y, z; } BlockPos;
+
+static void quit_button_callback(void *userdata) {
+    bool *running = userdata;
+    if (running) *running = false;
+}
 
 static bool raycast_find_solid(World *world, vec3 pos, vec3 dir, float max_dist, float step, BlockPos *out) {
     for (float t = 0; t < max_dist; t += step) {
@@ -214,19 +220,6 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    R_VAO button_vao = renderer_create_vao();
-    R_Buffer button_vbo = renderer_create_buffer();
-    float button_tri[] = {
-        -0.12f,-0.12f,  0.12f,-0.12f,  0.12f, 0.12f,
-        -0.12f,-0.12f,  0.12f, 0.12f, -0.12f, 0.12f
-    };
-    renderer_bind_vao(button_vao);
-    renderer_bind_buffer(R_BUF_ARRAY, button_vbo);
-    renderer_buffer_data(R_BUF_ARRAY, sizeof(button_tri), button_tri, R_USAGE_STATIC);
-    renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 8, 0);
-    renderer_enable_attrib(0);
-    renderer_bind_vao(R_INVALID_HANDLE);
-
     R_VAO hud_vao = renderer_create_vao();
     R_Buffer hud_vbo = renderer_create_buffer();
     float crosshair[] = {
@@ -268,6 +261,9 @@ int main(void) {
     renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
+
+    Gui gui;
+    gui_init(&gui, hud_program);
 
     World world;
     world_init(&world, 2);
@@ -388,16 +384,7 @@ int main(void) {
 #define LOG_TIMING(name) ((void)0)
 #endif
 
-        if (paused) {
-            static bool prev_pause_click = false;
-            if (game_input.mouse_left && !prev_pause_click) {
-                float mx = 2.0f * game_input.mouse_x / win_width - 1.0f;
-                float my = 1.0f - 2.0f * game_input.mouse_y / win_height;
-                if (mx >= -0.12f && mx <= 0.12f && my >= -0.12f && my <= 0.12f)
-                    running = false;
-            }
-            prev_pause_click = game_input.mouse_left;
-        }
+        gui_begin_frame(&gui, win_width, win_height, game_input.mouse_x, game_input.mouse_y, game_input.mouse_left);
 
         sys_movement(&g_ecs, &world, (float)dt);
         camera_update(&camera, dt, &world, &game_input, &g_ecs);
@@ -579,12 +566,11 @@ int main(void) {
             renderer_uniform_float(p_alpha_loc, 0.5f);
             renderer_bind_vao(overlay_vao);
             renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
-            renderer_uniform_vec3(p_color_loc, 1.0f, 1.0f, 1.0f);
-            renderer_uniform_float(p_alpha_loc, 1.0f);
-            renderer_bind_vao(button_vao);
-            renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 6);
-            renderer_bind_vao(R_INVALID_HANDLE);
-            renderer_use_program(R_INVALID_HANDLE);
+
+            gui_write_text(&gui, (float)win_width * 0.5f - 54.0f, (float)win_height * 0.5f - 78.0f,
+                           "Paused", 4.0f, 0.9f, 0.9f, 0.9f);
+            gui_create_button(&gui, (float)win_width * 0.5f - 110.0f, (float)win_height * 0.5f - 20.0f,
+                              220.0f, 44.0f, "quit game", quit_button_callback, &running);
         }
 
         int active_chunks = 0;
@@ -631,12 +617,11 @@ int main(void) {
     renderer_destroy_buffer(outline_vbo);
     renderer_destroy_vao(overlay_vao);
     renderer_destroy_buffer(overlay_vbo);
-    renderer_destroy_vao(button_vao);
-    renderer_destroy_buffer(button_vbo);
     renderer_destroy_vao(hud_vao);
     renderer_destroy_buffer(hud_vbo);
     renderer_destroy_vao(hotbar_vao);
     renderer_destroy_buffer(hotbar_vbo);
+    gui_shutdown(&gui);
     renderer_destroy_texture(tex_array);
     renderer_shutdown();
     ecs_shutdown(&g_ecs);

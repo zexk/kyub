@@ -60,6 +60,7 @@ COMMON_SRCS = \
 	$(SRC_DIR)/noise.c \
 	$(SRC_DIR)/world.c \
 	$(SRC_DIR)/texture.c \
+	$(SRC_DIR)/gui.c \
 	$(SRC_DIR)/ecs.c \
 	$(SRC_DIR)/components.c \
 	$(SRC_DIR)/systems.c \
