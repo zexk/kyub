@@ -60,14 +60,12 @@ COMMON_SRCS = \
 	$(SRC_DIR)/noise.c \
 	$(SRC_DIR)/world.c \
 	$(SRC_DIR)/texture.c \
-	$(SRC_DIR)/ui.c \
 	$(SRC_DIR)/ecs.c \
 	$(SRC_DIR)/components.c \
 	$(SRC_DIR)/systems.c \
 	$(SRC_DIR)/logger.c \
 	$(SRC_DIR)/platform/platform.c \
 	$(SRC_DIR)/platform/platform_x11.c \
-	$(SRC_DIR)/platform/nk_platform.c \
 	$(SRC_DIR)/platform/game_input.c
 
 SRCS = $(COMMON_SRCS) $(RENDERER_SRCS)
