@@ -454,25 +454,26 @@ void renderer_destroy_program(R_Program program) {
 void renderer_use_program(R_Program program) {
     CHECK_DEVICE();
     g_vk.active_pipeline = program;
-    g_uniform_count = 0;
     g_push_dirty = false;
 }
 
 int renderer_uniform_location(R_Program program, const char *name) {
-    (void)program;
+    if (program == R_INVALID_HANDLE || !name) return -1;
     /* Map uniform names to push constant offsets */
     int base_offset = 192; /* After 3 mat4 matrices (3 * 64 = 192) */
     
     for (int i = 0; i < g_uniform_count; i++) {
-        if (strcmp(g_uniforms[i].name, name) == 0) {
-            return g_uniforms[i].offset;
+        if (g_uniforms[i].program == program && strcmp(g_uniforms[i].name, name) == 0) {
+            return i;
         }
     }
     
     if (g_uniform_count >= 32) return -1;
     
     int offset = base_offset + (g_uniform_count * 16); /* 16 bytes per uniform vec4 slot */
+    g_uniforms[g_uniform_count].program = program;
     strncpy(g_uniforms[g_uniform_count].name, name, 63);
+    g_uniforms[g_uniform_count].name[63] = '\0';
     g_uniforms[g_uniform_count].offset = offset;
     return g_uniform_count++;
 }

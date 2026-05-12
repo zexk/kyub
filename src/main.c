@@ -347,7 +347,7 @@ int main(void) {
                     }
                     break;
                 case EVENT_SCROLL:
-                    if (event.scroll.dy != 0) {
+                    if (!paused && event.scroll.dy != 0) {
                         int next = (int)selected_block + (event.scroll.dy > 0 ? 1 : -1);
                         if (next > BLOCK_LEAVES) next = BLOCK_DIRT;
                         if (next < BLOCK_DIRT)  next = BLOCK_LEAVES;
@@ -386,8 +386,15 @@ int main(void) {
 
         gui_begin_frame(&gui, win_width, win_height, game_input.mouse_x, game_input.mouse_y, game_input.mouse_left);
 
-        sys_movement(&g_ecs, &world, (float)dt);
-        camera_update(&camera, dt, &world, &game_input, &g_ecs);
+        if (paused) {
+            GameInput zero_input = {0};
+            camera_update(&camera, (float)dt, &world, &zero_input, &g_ecs);
+            // Manually ensure movement is also zeroed
+            sys_movement(&g_ecs, &world, 0.0f);
+        } else {
+            camera_update(&camera, (float)dt, &world, &game_input, &g_ecs);
+            sys_movement(&g_ecs, &world, (float)dt);
+        }
         LOG_TIMING("camera_update");
 
         static float break_cooldown = 0.0f;
@@ -559,18 +566,29 @@ int main(void) {
         renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
 
         if (paused) {
+            renderer_enable(R_CAP_BLEND);
+            renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
+            renderer_disable(R_CAP_DEPTH_TEST);
+            renderer_disable(R_CAP_CULL_FACE);
+
             renderer_use_program(hud_program);
             int p_color_loc = renderer_uniform_location(hud_program, "uColor");
             renderer_uniform_vec3(p_color_loc, 0.0f, 0.0f, 0.0f);
             int p_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
-            renderer_uniform_float(p_alpha_loc, 0.5f);
+            renderer_uniform_float(p_alpha_loc, 0.3f);
+            
             renderer_bind_vao(overlay_vao);
             renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
-
+            renderer_bind_vao(R_INVALID_HANDLE);
+            
             gui_write_text(&gui, (float)win_width * 0.5f - 54.0f, (float)win_height * 0.5f - 78.0f,
                            "Paused", 4.0f, 0.9f, 0.9f, 0.9f);
             gui_create_button(&gui, (float)win_width * 0.5f - 110.0f, (float)win_height * 0.5f - 20.0f,
                               220.0f, 44.0f, "quit game", quit_button_callback, &running);
+            
+            renderer_use_program(R_INVALID_HANDLE);
+            renderer_enable(R_CAP_DEPTH_TEST);
+            renderer_enable(R_CAP_CULL_FACE);
         }
 
         int active_chunks = 0;
