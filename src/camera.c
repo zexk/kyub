@@ -4,15 +4,16 @@
 #include "logger.h"
 #include "components.h"
 #include <math.h>
-
-static bool position_is_safe(const World *world, vec3 pos) {
+bool position_is_safe(const World *world, vec3 pos) {
     float hw = PLAYER_HALF_WIDTH;
     float min_x = pos.x - hw;
     float max_x = pos.x + hw;
     float min_z = pos.z - hw;
     float max_z = pos.z + hw;
+    float min_y = pos.y - PLAYER_EYES_HEIGHT + 0.01f; // Epsilon
+    float max_y = pos.y + (PLAYER_HEIGHT - PLAYER_EYES_HEIGHT) - 0.01f; // Epsilon
 
-    for (int y = (int)(pos.y - PLAYER_EYES_HEIGHT); y <= (int)(pos.y - PLAYER_EYES_HEIGHT) + (int)PLAYER_HEIGHT + 1; y++) {
+    for (int y = (int)floorf(min_y); y <= (int)floorf(max_y); y++) {
         int xi1 = (int)floorf(min_x);
         int xi2 = (int)floorf(max_x);
         int zi1 = (int)floorf(min_z);
@@ -22,12 +23,34 @@ static bool position_is_safe(const World *world, vec3 pos) {
         if (world_is_solid(world, xi1, y, zi2)) return false;
         if (world_is_solid(world, xi2, y, zi1)) return false;
         if (world_is_solid(world, xi2, y, zi2)) return false;
-
-        float center_x = pos.x;
-        float center_z = pos.z;
-        if (world_is_solid(world, (int)floorf(center_x), y, (int)floorf(center_z))) return false;
     }
     return true;
+}
+
+// Allows checking a specific block coordinate against the player's collision volume
+bool player_collides_with_block(const World *world, vec3 player_pos, BlockPos block) {
+    float hw = PLAYER_HALF_WIDTH;
+
+    // Player AABB
+    float p_min_x = player_pos.x - hw;
+    float p_max_x = player_pos.x + hw;
+    float p_min_z = player_pos.z - hw;
+    float p_max_z = player_pos.z + hw;
+    float p_min_y = player_pos.y - PLAYER_EYES_HEIGHT;
+    float p_max_y = player_pos.y + (PLAYER_HEIGHT - PLAYER_EYES_HEIGHT);
+
+    // Block AABB
+    float b_min_x = (float)block.x;
+    float b_max_x = (float)block.x + 1.0f;
+    float b_min_y = (float)block.y;
+    float b_max_y = (float)block.y + 1.0f;
+    float b_min_z = (float)block.z;
+    float b_max_z = (float)block.z + 1.0f;
+
+    // AABB intersection
+    return (p_min_x < b_max_x && p_max_x > b_min_x) &&
+           (p_min_y < b_max_y && p_max_y > b_min_y) &&
+           (p_min_z < b_max_z && p_max_z > b_min_z);
 }
 
 void camera_init(Camera *cam, ECS *ecs) {

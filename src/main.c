@@ -48,7 +48,7 @@ static double get_time_s(void) {
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
-typedef struct { int x, y, z; } BlockPos;
+// Voxel and world definitions moved to voxel.h
 
 static void quit_button_callback(void *userdata) {
     bool *running = userdata;
@@ -427,8 +427,13 @@ int main(void) {
                     LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d, prev=%d,%d,%d type=%d",
                               hit.x, hit.y, hit.z, prev.x, prev.y, prev.z, prev_b);
                     if (prev_b == BLOCK_AIR) {
-                        LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev.x, prev.y, prev.z, selected_block);
-                        world_set_block(&world, prev.x, prev.y, prev.z, selected_block);
+                        // Check if block placement overlaps with player
+                        if (!player_collides_with_block(&world, cam_pos, prev)) {
+                            LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev.x, prev.y, prev.z, selected_block);
+                            world_set_block(&world, prev.x, prev.y, prev.z, selected_block);
+                        } else {
+                            LOG_DEBUG(CAT_WORLD, "Place failed: block overlaps player");
+                        }
                     }
                 } else {
                     LOG_DEBUG(CAT_WORLD, "Place no block hit in range");
