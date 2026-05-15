@@ -18,7 +18,11 @@
 #include <unistd.h>
 #include <math.h>
 #include <stdio.h>
+#if defined(__GLIBC__)
 #include <execinfo.h>
+#else
+#define backtrace_symbols_fd(addrs, n, fd) (void)addrs
+#endif
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,9 +38,8 @@
 
 static void crash_handler(int sig) {
     void *addrs[32];
-    int n = backtrace(addrs, 32);
     fprintf(stderr, "\n=== CRASH (signal %d) ===\n", sig);
-    backtrace_symbols_fd(addrs, n, STDERR_FILENO);
+    backtrace_symbols_fd(addrs, backtrace(addrs, 32), STDERR_FILENO);
     fprintf(stderr, "========================\n");
     logger_shutdown();
     _Exit(1);
