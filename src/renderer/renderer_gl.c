@@ -2,7 +2,12 @@
 #include "platform/platform.h"
 #include "logger.h"
 #include <glad/gl.h>
+#if defined(PLATFORM_WIN32)
+#include "platform/platform_win.h"
+#else
+#include "platform/platform_x11.h"
 #include <GL/glx.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,9 +36,14 @@ typedef struct {
 
 static struct {
     int width, height;
+#if defined(PLATFORM_WIN32)
+    HWND window;
+    HDC dc;
+#else
     Display *display;
     GLXContext context;
     Window window;
+#endif
     GLuint bound_program;
     GLuint bound_vao;
     int bound_vao_idx;
@@ -234,17 +244,23 @@ static GLint tex_value_to_gl(R_TexValue value) {
  * Init / Lifecycle
  * ============================================================================ */
 
-extern Display *g_x11_display;
-extern Window g_x11_window;
-
 bool renderer_init(int width, int height) {
     g_gl.width = width;
     g_gl.height = height;
+#if defined(PLATFORM_WIN32)
+    g_gl.window = platform_win_get_window();
+    g_gl.dc = platform_win_get_dc();
+#else
     g_gl.display = g_x11_display;
     g_gl.window = g_x11_window;
+#endif
 
     /* Initialize GLAD */
+#if defined(PLATFORM_WIN32)
+    int version = gladLoadGL((GLADloadfunc)platform_win_get_gl_proc_address);
+#else
     int version = gladLoadGL((GLADloadfunc)glXGetProcAddressARB);
+#endif
     if (version == 0) {
         fprintf(stderr, "Failed to initialize GLAD\n");
         return false;
@@ -257,12 +273,14 @@ bool renderer_init(int width, int height) {
         return false;
     }
 
+#if !defined(PLATFORM_WIN32)
     /* Get GLX context */
     g_gl.context = glXGetCurrentContext();
     if (!g_gl.context) {
         fprintf(stderr, "No active GLX context\n");
         return false;
     }
+#endif
 
     g_gl.bound_vao_idx = -1;
 
@@ -334,16 +352,24 @@ void renderer_shutdown(void) {
 }
 
 void renderer_swap(void) {
+#if defined(PLATFORM_WIN32)
+    platform_win_swap_buffers();
+#else
     glXSwapBuffers(g_gl.display, g_gl.window);
+#endif
 }
 
 void renderer_swap_interval(int interval) {
+#if defined(PLATFORM_WIN32)
+    platform_win_swap_interval(interval);
+#else
     typedef int (*PFNGLXSWAPINTERVALEXTPROC)(Display *dpy, GLXDrawable drawable, int interval);
     PFNGLXSWAPINTERVALEXTPROC swap_interval_ext =
         (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddressARB((const GLubyte *)"glXSwapIntervalEXT");
     if (swap_interval_ext) {
         swap_interval_ext(g_gl.display, g_gl.window, interval);
     }
+#endif
 }
 
 void renderer_get_size(int *width, int *height) {

@@ -1,12 +1,19 @@
 CC ?= gcc
 RENDERER ?= vulkan
 
+ifeq ($(OS),Windows_NT)
+  EXEEXT ?= .exe
+  DEFAULT_PLATFORM = win32
+else
+  DEFAULT_PLATFORM = x11
+endif
+PLATFORM ?= $(DEFAULT_PLATFORM)
+
 # ---------------------------------------------------------------------------
 # Renderer selection
 # ---------------------------------------------------------------------------
 ifeq ($(RENDERER),opengl)
   RENDERER_DEF = -DRENDERER_OPENGL
-  RENDERER_LIBS = -lGL
   RENDERER_SRCS = \
     $(SRC_DIR)/renderer/renderer_gl.c \
     $(SRC_DIR)/glad.c
@@ -15,7 +22,6 @@ ifeq ($(RENDERER),opengl)
   SHADER_TARGETS = gl-shaders
 else
   RENDERER_DEF = -DRENDERER_VULKAN
-  RENDERER_LIBS = -lvulkan
   RENDERER_SRCS = \
     $(SRC_DIR)/renderer/renderer.c \
     $(SRC_DIR)/renderer/instance.c \
@@ -28,14 +34,36 @@ else
   SHADER_TARGETS = shaders
 endif
 
-CFLAGS = -std=c99 -Wall -Wextra -g -Iinclude $(RENDERER_DEF) -DENABLE_LOGGER $(CFLAGS_EXTRA)
-LDFLAGS = -lX11 $(RENDERER_LIBS) -lm -lrt
+ifeq ($(PLATFORM),win32)
+  PLATFORM_DEF = -DPLATFORM_WIN32
+  PLATFORM_SRCS = $(SRC_DIR)/platform/platform_win.c
+  PLATFORM_LIBS = -luser32 -lgdi32 -lshell32
+  ifeq ($(RENDERER),opengl)
+    RENDERER_LIBS = -lopengl32
+  else
+    RENDERER_LIBS = -lvulkan-1
+  endif
+  LDFLAGS_PLATFORM =
+else
+  PLATFORM_DEF = -DPLATFORM_X11
+  PLATFORM_SRCS = $(SRC_DIR)/platform/platform_x11.c
+  PLATFORM_LIBS = -lX11 -lrt
+  ifeq ($(RENDERER),opengl)
+    RENDERER_LIBS = -lGL
+  else
+    RENDERER_LIBS = -lvulkan
+  endif
+endif
+
+CFLAGS = -std=c99 -Wall -Wextra -g -Iinclude $(RENDERER_DEF) $(PLATFORM_DEF) -DENABLE_LOGGER $(CFLAGS_EXTRA)
+LDFLAGS = $(PLATFORM_LIBS) $(RENDERER_LIBS) -lm
 
 SRC_DIR = src
 BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj/$(PLATFORM)-$(RENDERER)
 SHADER_SRC_DIR = shaders
 SHADER_OUT_DIR = $(BUILD_DIR)/shaders
-TARGET = $(BUILD_DIR)/kyub
+TARGET = $(BUILD_DIR)/kyub$(EXEEXT)
 
 # ---------------------------------------------------------------------------
 # SPIR-V shaders (Vulkan only)
@@ -66,18 +94,18 @@ COMMON_SRCS = \
 	$(SRC_DIR)/systems.c \
 	$(SRC_DIR)/logger.c \
 	$(SRC_DIR)/platform/platform.c \
-	$(SRC_DIR)/platform/platform_x11.c \
-	$(SRC_DIR)/platform/game_input.c
+	$(SRC_DIR)/platform/game_input.c \
+	$(PLATFORM_SRCS)
 
 SRCS = $(COMMON_SRCS) $(RENDERER_SRCS)
-OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
 
 .PHONY: all clean shaders release
 
 all: $(SHADER_TARGETS) $(TARGET)
 
-release: CFLAGS = -std=c99 -Wall -Wextra -O2 -DNDEBUG -Iinclude $(RENDERER_DEF) $(CFLAGS_EXTRA)
-release: LDFLAGS = -lX11 $(RENDERER_LIBS) -lm -lrt
+release: CFLAGS = -std=c99 -Wall -Wextra -O2 -DNDEBUG -Iinclude $(RENDERER_DEF) $(PLATFORM_DEF) $(CFLAGS_EXTRA)
+release: LDFLAGS = $(PLATFORM_LIBS) $(RENDERER_LIBS) -lm
 release: clean all
 
 shaders: $(SPIRV_ALL)
@@ -105,7 +133,7 @@ $(SHADER_OUT_DIR):
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

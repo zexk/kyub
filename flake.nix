@@ -10,6 +10,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        windowsPkgs = pkgs.pkgsCross.mingwW64;
 
         nativeBuildInputs = with pkgs; [
           gcc
@@ -29,6 +30,15 @@
         openglBuildInputs = with pkgs; [
           libX11
           libGL
+          stb
+        ];
+
+        windowsNativeBuildInputs = with pkgs; [
+          gnumake
+          pkg-config
+        ];
+
+        windowsOpenglBuildInputs = with windowsPkgs; [
           stb
         ];
 
@@ -77,11 +87,36 @@
             mainProgram = "kyub";
           };
         };
+
+        windowsOpenglPackage = windowsPkgs.stdenv.mkDerivation {
+          pname = "kyub-windows-opengl";
+          version = "0.1.0";
+          src = ./.;
+          nativeBuildInputs = windowsNativeBuildInputs;
+          buildInputs = windowsOpenglBuildInputs;
+          buildPhase = "make PLATFORM=win32 RENDERER=opengl EXEEXT=.exe";
+          installPhase = ''
+            mkdir -p $out/bin
+            cp build/kyub.exe $out/bin/
+            mkdir -p $out/bin/build
+            cp -r build/shaders $out/bin/build/
+            cp -r assets $out/bin/
+          '';
+          meta = {
+            description = "Minimalist voxel engine with Win32 platform and OpenGL renderer";
+            homepage = "https://github.com/zexk/kyub";
+            license = pkgs.lib.licenses.mit;
+            platforms = pkgs.lib.platforms.windows;
+            mainProgram = "kyub.exe";
+          };
+        };
       in
       {
         packages = {
           vulkan = vulkanPackage;
           opengl = openglPackage;
+          windows-opengl = windowsOpenglPackage;
+          windows = windowsOpenglPackage;
           default = vulkanPackage;
         };
 

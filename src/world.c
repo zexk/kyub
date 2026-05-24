@@ -7,7 +7,13 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
+#if defined(_WIN32)
+#include <direct.h>
+#define kyub_mkdir(path) _mkdir(path)
+#else
 #include <sys/stat.h>
+#define kyub_mkdir(path) mkdir(path, 0755)
+#endif
 
 #define MAX_RENDER_DISTANCE 8
 #define WORLD_SAVE_DIR "saves/default"
@@ -58,10 +64,10 @@ static bool read_i32(FILE *f, int32_t *out) {
 }
 
 static void ensure_save_dirs(void) {
-    if (mkdir("saves", 0755) != 0 && errno != EEXIST) {
+    if (kyub_mkdir("saves") != 0 && errno != EEXIST) {
         LOG_WARN(CAT_WORLD, "Failed to create saves directory: %s", strerror(errno));
     }
-    if (mkdir(WORLD_SAVE_DIR, 0755) != 0 && errno != EEXIST) {
+    if (kyub_mkdir(WORLD_SAVE_DIR) != 0 && errno != EEXIST) {
         LOG_WARN(CAT_WORLD, "Failed to create world save directory: %s", strerror(errno));
     }
 }

@@ -1,4 +1,17 @@
 #define _POSIX_C_SOURCE 199309L
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#if defined(__GLIBC__)
+#include <execinfo.h>
+#else
+#define backtrace_symbols_fd(addrs, n, fd) (void)addrs
+#endif
+#endif
 #include "common.h"
 #include "renderer/renderer.h"
 #include "voxel.h"
@@ -15,14 +28,8 @@
 #include "systems.h"
 #include "gui.h"
 #include <time.h>
-#include <unistd.h>
 #include <math.h>
 #include <stdio.h>
-#if defined(__GLIBC__)
-#include <execinfo.h>
-#else
-#define backtrace_symbols_fd(addrs, n, fd) (void)addrs
-#endif
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,18 +44,34 @@
 #define FAR_PLANE 100.0f
 
 static void crash_handler(int sig) {
+#if defined(_WIN32)
+    fprintf(stderr, "\n=== CRASH (signal %d) ===\n", sig);
+#else
     void *addrs[32];
     fprintf(stderr, "\n=== CRASH (signal %d) ===\n", sig);
     backtrace_symbols_fd(addrs, backtrace(addrs, 32), STDERR_FILENO);
+#endif
     fprintf(stderr, "========================\n");
     logger_shutdown();
+#if defined(_WIN32)
+    ExitProcess(1);
+#else
     _Exit(1);
+#endif
 }
 
 static double get_time_s(void) {
+#if defined(_WIN32)
+    static LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
+#endif
 }
 
 // Voxel and world definitions moved to voxel.h
@@ -96,7 +119,9 @@ static bool raycast_find_solid_with_prev(World *world, vec3 pos, vec3 dir, float
 int main(void) {
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
+#if !defined(_WIN32)
     signal(SIGBUS, crash_handler);
+#endif
 
     if (platform_init(WINDOW_WIDTH, WINDOW_HEIGHT) != 0) return 1;
 
@@ -114,6 +139,7 @@ int main(void) {
     }
 
     renderer_viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+    renderer_swap_interval(0);
 
     renderer_enable(R_CAP_DEPTH_TEST);
     renderer_enable(R_CAP_CULL_FACE);
@@ -147,7 +173,12 @@ int main(void) {
             for (int i = 0; i < tex_path_count; i++) {
                 if (strcmp(tex_paths[i], paths[p]) == 0) { found = true; break; }
             }
-            if (!found && tex_path_count < 32) tex_paths[tex_path_count++] = paths[p];
+            if (!found) {
+                if (tex_path_count < 32)
+                    tex_paths[tex_path_count++] = paths[p];
+                else
+                    LOG_WARN(CAT_WORLD, "Texture path limit (32) exceeded, dropping: %s", paths[p]);
+            }
         }
     }
 
@@ -618,9 +649,6 @@ int main(void) {
 
         renderer_swap();
         LOG_TIMING("renderer_swap");
-
-        renderer_swap_interval(0);
-        LOG_TIMING("swap_interval");
 
 #ifdef ENABLE_LOGGER
         double frame_end = get_time_s();

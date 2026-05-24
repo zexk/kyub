@@ -1,10 +1,18 @@
 #ifndef RENDERER_INTERNAL_H
 #define RENDERER_INTERNAL_H
 
+#if defined(PLATFORM_WIN32)
+#define VK_USE_PLATFORM_WIN32_KHR
+#else
 #define VK_USE_PLATFORM_XLIB_KHR
+#endif
 #include "renderer/renderer.h"
 #include "platform/platform.h"
+#if defined(PLATFORM_WIN32)
+#include "platform/platform_win.h"
+#else
 #include "platform/platform_x11.h"
+#endif
 #include <vulkan/vulkan.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,8 +208,8 @@ extern VkPipeline create_graphics_pipeline(VkShaderModule vert, VkShaderModule f
 extern void copy_to_buffer(VkBuffer dst, VkDeviceSize dst_offset, VkDeviceSize size, const void *data);
 
 /* Texture helpers */
-extern VkImage create_image(uint32_t width, uint32_t height, uint32_t depth, VkFormat format,
-                             VkImageUsageFlags usage, VkDeviceMemory *out_memory);
+extern VkImage create_image(uint32_t width, uint32_t height, uint32_t depth, uint32_t array_layers,
+                             VkFormat format, VkImageUsageFlags usage, VkDeviceMemory *out_memory);
 extern VkImageView create_image_view(VkImage image, VkFormat format, VkImageViewType view_type);
 extern bool transition_image_layout(VkImage image, VkImageLayout old_layout, VkImageLayout new_layout);
 extern void upload_image_data(VkImage image, uint32_t width, uint32_t height, uint32_t depth,

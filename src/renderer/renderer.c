@@ -54,7 +54,7 @@ VkShaderModule create_shader_module(const char *code, size_t size) {
  * ============================================================================ */
 
 VkBuffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props, VkDeviceMemory *out_memory);
-VkImage create_image(uint32_t width, uint32_t height, uint32_t depth, VkFormat format, VkImageUsageFlags usage, VkDeviceMemory *out_memory);
+VkImage create_image(uint32_t width, uint32_t height, uint32_t depth, uint32_t array_layers, VkFormat format, VkImageUsageFlags usage, VkDeviceMemory *out_memory);
 
 bool renderer_init(int width, int height) {
     g_vk.width = width;

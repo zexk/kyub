@@ -1,4 +1,10 @@
 #define _POSIX_C_SOURCE 199309L
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 #include "logger.h"
 #include "common.h"
 #include <string.h>
@@ -76,14 +82,23 @@ void logger_log(LogLevel level, LogCategory cat, const char *fmt, ...) {
     if (level > g_log_level || level < 0 || level >= LOG_LEVEL_COUNT) return;
     if (cat < 0 || cat >= CAT_COUNT) cat = CAT_COUNT - 1;
 
+    time_t sec;
+    int ms;
+#if defined(_WIN32)
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    sec = time(NULL);
+    ms = (int)st.wMilliseconds;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    struct tm *tm_info = localtime(&ts.tv_sec);
+    sec = ts.tv_sec;
+    ms = (int)(ts.tv_nsec / 1000000);
+#endif
+    struct tm *tm_info = localtime(&sec);
 
     char timestamp[32];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
-
-    int ms = (int)(ts.tv_nsec / 1000000);
 
     char message[1024];
     va_list args;

@@ -1,5 +1,7 @@
 #include "renderer/renderer_internal.h"
+#if !defined(PLATFORM_WIN32)
 #include <X11/Xlib.h>
+#endif
 
 #ifdef ENABLE_VALIDATION
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
@@ -31,7 +33,11 @@ bool create_instance(void) {
 
     const char *extensions[] = {
         VK_KHR_SURFACE_EXTENSION_NAME,
+#if defined(PLATFORM_WIN32)
+        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+#else
         VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
+#endif
 #ifdef ENABLE_VALIDATION
         VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 #endif
@@ -154,11 +160,22 @@ bool find_queue_families(void) {
         }
     }
     
-    g_vk.present_family = g_vk.graphics_family;
+    for (uint32_t i = 0; i < queue_count; i++) {
+        VkBool32 supports_present = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(g_vk.physical_device, i, g_vk.surface, &supports_present);
+        if (supports_present) {
+            g_vk.present_family = i;
+            break;
+        }
+    }
     
     free(queues);
     if (g_vk.graphics_family == UINT32_MAX) {
         fprintf(stderr, "No graphics queue family found\n");
+        return false;
+    }
+    if (g_vk.present_family == UINT32_MAX) {
+        fprintf(stderr, "No present queue family found\n");
         return false;
     }
     return true;
@@ -173,6 +190,11 @@ bool create_device(void) {
     unique_families[unique_count++] = g_vk.graphics_family;
     if (g_vk.compute_family != g_vk.graphics_family && g_vk.compute_family != UINT32_MAX) {
         unique_families[unique_count++] = g_vk.compute_family;
+    }
+    if (g_vk.present_family != g_vk.graphics_family &&
+        g_vk.present_family != g_vk.compute_family &&
+        g_vk.present_family != UINT32_MAX) {
+        unique_families[unique_count++] = g_vk.present_family;
     }
 
     VkDeviceQueueCreateInfo queue_create_infos[3];
@@ -224,6 +246,17 @@ bool create_device(void) {
 }
 
 bool create_surface(void) {
+#if defined(PLATFORM_WIN32)
+    VkWin32SurfaceCreateInfoKHR create_info = {0};
+    create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    create_info.hinstance = platform_win_get_instance();
+    create_info.hwnd = platform_win_get_window();
+
+    if (vkCreateWin32SurfaceKHR(g_vk.instance, &create_info, NULL, &g_vk.surface) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create Win32 surface\n");
+        return false;
+    }
+#else
     Display *display = (Display *)platform_x11_get_display();
     Window window = (Window)(size_t)platform_x11_get_window();
     
@@ -236,6 +269,7 @@ bool create_surface(void) {
         fprintf(stderr, "Failed to create X11 surface\n");
         return false;
     }
+#endif
     return true;
 }
 bool create_descriptor_pool(void) {
