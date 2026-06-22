@@ -4,45 +4,20 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    kiln.url = "git+file:///home/zexk/repos/kiln";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, kiln }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-
-        hostTools = with pkgs; [
-          cmake
-          ninja
-          pkg-config
-          shaderc
-        ];
-
-        buildInputs = with pkgs; [
-          libX11
-          vulkan-loader
-          vulkan-headers
-          shaderc
-          stb
-        ];
       in
       {
-        formatter = pkgs.nixpkgs-fmt;
-
-        packages.default = pkgs.stdenv.mkDerivation {
+        packages.default = kiln.lib.mkKilnGame {
+          inherit pkgs;
           pname = "kyub";
           version = "0.1.0";
           src = ./.;
-          nativeBuildInputs = with pkgs; [ gcc ] ++ hostTools;
-          inherit buildInputs;
-          cmakeFlags = [ "-DBUILD_TESTING=OFF" ];
-          buildPhase = "cmake --build . --target kyub";
-          installPhase = ''
-            mkdir -p $out/bin $out/share/kyub/shaders $out/share/kyub/assets
-            cp kyub $out/bin/
-            cp shaders/*.spv $out/share/kyub/shaders/
-            cp -r assets $out/share/kyub/
-          '';
           meta = {
             description = "Minimalist voxel game with Vulkan renderer";
             homepage = "https://github.com/zexk/kyub";
@@ -53,8 +28,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ gcc ] ++ hostTools;
-          inherit buildInputs;
+          inputsFrom = [ self.packages.${system}.default ];
           packages = with pkgs; [
             gdb
             vulkan-validation-layers
@@ -62,9 +36,8 @@
           ];
           shellHook = ''
             export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
-            echo "Kyub dev shell — cmake -B build -G Ninja && cmake --build build"
+            echo "Kyub dev shell — cmake -B build -G Ninja -DKILN_DIR=${kiln} && cmake --build build"
           '';
         };
-      }
-    );
+      });
 }

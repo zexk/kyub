@@ -10,7 +10,12 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # ── Kiln engine ──────────────────────────────────────────────────────────────
-add_subdirectory(extern/kiln)
+# KILN_DIR can be set externally (e.g. -DKILN_DIR=/nix/store/...) when kiln is
+# provided as a flake input.  Falls back to the git submodule for local builds.
+if(NOT DEFINED KILN_DIR)
+  set(KILN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln")
+endif()
+add_subdirectory(${KILN_DIR} ${CMAKE_CURRENT_BINARY_DIR}/kiln)
 
 # ── Shader compilation ───────────────────────────────────────────────────────
 find_program(GLSLC glslc REQUIRED)
@@ -54,13 +59,13 @@ add_custom_command(TARGET kyub POST_BUILD
 
 target_include_directories(kyub PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/platform
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/render
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/ui
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/ecs
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/camera
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln/src/physics)
+    ${KILN_DIR}/src/core
+    ${KILN_DIR}/src/platform
+    ${KILN_DIR}/src/render
+    ${KILN_DIR}/src/ui
+    ${KILN_DIR}/src/ecs
+    ${KILN_DIR}/src/camera
+    ${KILN_DIR}/src/physics)
 
 target_link_libraries(kyub PRIVATE
     kiln_renderer
