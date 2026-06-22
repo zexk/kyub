@@ -27,3 +27,13 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@v2
       - name: build
         run: nix build -L
+
+  win32:
+    name: Cross-compile Win32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v4
+      - uses: DeterminateSystems/magic-nix-cache-action@v2
+      - name: build win32
+        run: nix build .#win32 -L
