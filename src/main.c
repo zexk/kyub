@@ -88,14 +88,17 @@ int main(void) {
     window_t *win = window_create("Kyub", WINDOW_WIDTH, WINDOW_HEIGHT);
     if (!win) { fprintf(stderr, "Failed to create window\n"); return 1; }
 
+    uint32_t init_w, init_h;
+    window_size(win, &init_w, &init_h);
+
     platform_native_handles_t nh = window_get_native_handles(win);
-    if (!renderer_init(WINDOW_WIDTH, WINDOW_HEIGHT, &nh)) {
+    if (!renderer_init((int)init_w, (int)init_h, &nh)) {
         fprintf(stderr, "Failed to initialize renderer\n");
         window_destroy(win);
         return 1;
     }
 
-    renderer_viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+    renderer_viewport(0, 0, (int)init_w, (int)init_h);
     renderer_swap_interval(0);
     renderer_enable(R_CAP_DEPTH_TEST);
     renderer_enable(R_CAP_CULL_FACE);
