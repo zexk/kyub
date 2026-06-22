@@ -1,50 +1,42 @@
 #include "systems.h"
 #include "components.h"
-#include "camera.h"
-#include "logger.h"
-#include <math.h>
+#include "physics.h"
 
-void sys_movement(ECS *ecs, World *world, float dt) {
-    for (Entity e = 1; e < (Entity)ecs->max_entities; e++) {
-        if (!ecs_alive(ecs, e)) continue;
-        if (!ecs_has(ecs, e, COMP_TRANSFORM) || !ecs_has(ecs, e, COMP_MOVEMENT)) continue;
+static bool world_solid_cb(void *ctx, int x, int y, int z) {
+    return world_is_solid((World *)ctx, x, y, z);
+}
 
-        C_Transform *transform = ecs_get(ecs, e, COMP_TRANSFORM);
-        C_Movement *movement = ecs_get(ecs, e, COMP_MOVEMENT);
-        if (!transform || !movement) continue;
+void sys_movement(world_t *ecs, World *world, float dt) {
+    signature_t sig;
+    signature_clear(&sig);
+    signature_set(&sig, COMP_TRANSFORM);
+    signature_set(&sig, COMP_MOVEMENT);
+    query_iter_t it = query_iter(ecs, (query_desc_t){.require = sig});
+    while (query_next(&it)) {
+        C_Transform *transform = query_get(&it, COMP_TRANSFORM);
+        C_Movement  *movement  = query_get(&it, COMP_MOVEMENT);
 
-        // Physics: gravity
-        movement->velocity.y -= GRAVITY * dt;
-        transform->position.y += movement->velocity.y * dt;
+        phys_body_t body = {
+            .position = transform->position,
+            .velocity = movement->velocity,
+            .half_w   = PLAYER_HALF_WIDTH,
+            .foot_off = PLAYER_EYES_HEIGHT,
+            .head_off = PLAYER_HEIGHT - PLAYER_EYES_HEIGHT,
+            .gravity  = GRAVITY,
+            .grounded = movement->grounded,
+        };
 
-        // Ground collision - only check feet level
-        if (movement->velocity.y < 0) {
-            float feet_y = transform->position.y - PLAYER_EYES_HEIGHT;
-            int feet_cell = (int)floorf(feet_y);
-            float hw = PLAYER_HALF_WIDTH;
+        phys_step(&body, dt, world_solid_cb, world);
 
-            if (world_is_solid(world, (int)floorf(transform->position.x - hw), feet_cell, (int)floorf(transform->position.z - hw)) ||
-                world_is_solid(world, (int)floorf(transform->position.x + hw), feet_cell, (int)floorf(transform->position.z - hw)) ||
-                world_is_solid(world, (int)floorf(transform->position.x - hw), feet_cell, (int)floorf(transform->position.z + hw)) ||
-                world_is_solid(world, (int)floorf(transform->position.x + hw), feet_cell, (int)floorf(transform->position.z + hw))) {
+        transform->position = body.position;
+        movement->velocity  = body.velocity;
+        movement->grounded  = body.grounded;
 
-                transform->position.y = (float)(feet_cell + 1) + PLAYER_EYES_HEIGHT;
-                movement->velocity.y = 0.0f;
-                movement->grounded = true;
-            } else {
-                movement->grounded = false;
-            }
-        } else {
-            movement->grounded = false;
-        }
-
-        // Check if fell below world
-        if (transform->position.y < 0) {
-            transform->position.y = 20.0f;
-            transform->position.x = 8.0f;
-            transform->position.z = 8.0f;
-            movement->velocity.y = 0.0f;
-            movement->grounded = false;
+        /* Respawn if the entity fell out of the world. */
+        if (transform->position.y < 0.0f) {
+            transform->position = (vec3){8.0f, 20.0f, 8.0f};
+            movement->velocity  = (vec3){0.0f, 0.0f, 0.0f};
+            movement->grounded  = false;
         }
     }
 }

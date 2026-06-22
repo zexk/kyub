@@ -1,80 +1,46 @@
-#define _POSIX_C_SOURCE 199309L
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#include <unistd.h>
-#if defined(__GLIBC__)
-#include <execinfo.h>
-#else
-#define backtrace_symbols_fd(addrs, n, fd) (void)addrs
-#endif
-#endif
-#include "common.h"
-#include "renderer/renderer.h"
+#include "renderer.h"
+#include "platform.h"
+#include "core.h"
+#include "timer.h"
+#include "noise.h"
+#include "math3d.h"
+#include "logger.h"
+#include "game_input.h"
+#include "fps_camera.h"
+#include "ui.h"
 #include "voxel.h"
 #include "mesh.h"
-#include "math3d.h"
-#include "camera.h"
-#include "platform/game_input.h"
 #include "world.h"
 #include "texture.h"
-#include "platform/platform.h"
-#include "logger.h"
-#include "ecs.h"
 #include "components.h"
 #include "systems.h"
 #include "gui.h"
-#include <time.h>
 #include <math.h>
 #include <stdio.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define WINDOW_WIDTH  800
-#define WINDOW_HEIGHT 600
+#define WINDOW_WIDTH        800
+#define WINDOW_HEIGHT       600
 #define RAYCAST_MAX_DISTANCE 8.0f
-#define RAYCAST_STEP 0.05f
-#define COOLDOWN_TIME 0.25f
-#define FOV_DEGREES 45.0f
-#define NEAR_PLANE 0.1f
-#define FAR_PLANE 100.0f
+#define RAYCAST_STEP        0.05f
+#define COOLDOWN_TIME       0.25f
+#define FOV_DEFAULT         45.0f
+#define NEAR_PLANE          0.1f
+#define FAR_PLANE           800.0f
 
-static void crash_handler(int sig) {
-#if defined(_WIN32)
-    fprintf(stderr, "\n=== CRASH (signal %d) ===\n", sig);
-#else
-    void *addrs[32];
-    fprintf(stderr, "\n=== CRASH (signal %d) ===\n", sig);
-    backtrace_symbols_fd(addrs, backtrace(addrs, 32), STDERR_FILENO);
-#endif
-    fprintf(stderr, "========================\n");
-    logger_shutdown();
-#if defined(_WIN32)
-    ExitProcess(1);
-#else
-    _Exit(1);
-#endif
+typedef enum { PAUSE_MAIN = 0, PAUSE_OPTIONS } PauseScreen;
+
+/* ── Game-side ui_draw_t: routes to gui.c's renderer.h primitives ─────────── */
+
+static void game_ui_rect(void *ud, float x, float y, float w, float h,
+                          float r, float g, float b) {
+    gui_rect((Gui *)ud, x, y, w, h, r, g, b);
 }
-
-static double get_time_s(void) {
-#if defined(_WIN32)
-    static LARGE_INTEGER frequency;
-    LARGE_INTEGER counter;
-    if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&counter);
-    return (double)counter.QuadPart / (double)frequency.QuadPart;
-#else
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + ts.tv_nsec * 1e-9;
-#endif
+static void game_ui_text(void *ud, float x, float y, float scale,
+                          float r, float g, float b, const char *s) {
+    gui_write_text((Gui *)ud, x, y, s, scale, r, g, b);
 }
-
-// Voxel and world definitions moved to voxel.h
 
 static void quit_button_callback(void *userdata) {
     bool *running = userdata;
@@ -83,12 +49,9 @@ static void quit_button_callback(void *userdata) {
 
 static bool raycast_find_solid(World *world, vec3 pos, vec3 dir, float max_dist, float step, BlockPos *out) {
     for (float t = 0; t < max_dist; t += step) {
-        vec3 p = vec3_add(pos, vec3_mul(dir, t));
-        int bx = (int)floorf(p.x);
-        int by = (int)floorf(p.y);
-        int bz = (int)floorf(p.z);
-        BlockType b = world_get_block(world, bx, by, bz);
-        if (b != BLOCK_AIR) {
+        vec3 p = vec3_add(pos, vec3_scale(dir, t));
+        int bx = (int)floorf(p.x), by = (int)floorf(p.y), bz = (int)floorf(p.z);
+        if (world_get_block(world, bx, by, bz) != BLOCK_AIR) {
             out->x = bx; out->y = by; out->z = bz;
             return true;
         }
@@ -96,17 +59,15 @@ static bool raycast_find_solid(World *world, vec3 pos, vec3 dir, float max_dist,
     return false;
 }
 
-static bool raycast_find_solid_with_prev(World *world, vec3 pos, vec3 dir, float max_dist, float step, BlockPos *out, BlockPos *prev_out) {
+static bool raycast_find_solid_with_prev(World *world, vec3 pos, vec3 dir, float max_dist, float step,
+                                         BlockPos *out, BlockPos *prev_out) {
     BlockPos prev = {0};
     bool has_prev = false;
     for (float t = 0; t < max_dist; t += step) {
-        vec3 p = vec3_add(pos, vec3_mul(dir, t));
-        int bx = (int)floorf(p.x);
-        int by = (int)floorf(p.y);
-        int bz = (int)floorf(p.z);
-        BlockType b = world_get_block(world, bx, by, bz);
-        if (b != BLOCK_AIR) {
-            if (out) { out->x = bx; out->y = by; out->z = bz; }
+        vec3 p = vec3_add(pos, vec3_scale(dir, t));
+        int bx = (int)floorf(p.x), by = (int)floorf(p.y), bz = (int)floorf(p.z);
+        if (world_get_block(world, bx, by, bz) != BLOCK_AIR) {
+            if (out)      { out->x = bx; out->y = by; out->z = bz; }
             if (prev_out) { *prev_out = prev; }
             return has_prev;
         }
@@ -117,112 +78,86 @@ static bool raycast_find_solid_with_prev(World *world, vec3 pos, vec3 dir, float
 }
 
 int main(void) {
-    signal(SIGSEGV, crash_handler);
-    signal(SIGABRT, crash_handler);
-#if !defined(_WIN32)
-    signal(SIGBUS, crash_handler);
-#endif
-
-    if (platform_init(WINDOW_WIDTH, WINDOW_HEIGHT) != 0) return 1;
+    core_install_crash_handler();
+    noise_init(42);
 
 #ifdef ENABLE_LOGGER
-    logger_init("kyub.log");
+    log_init("kyub.log");
 #endif
 
-    if (!renderer_init(WINDOW_WIDTH, WINDOW_HEIGHT)) {
+    window_t *win = window_create("Kyub", WINDOW_WIDTH, WINDOW_HEIGHT);
+    if (!win) { fprintf(stderr, "Failed to create window\n"); return 1; }
+
+    platform_native_handles_t nh = window_get_native_handles(win);
+    if (!renderer_init(WINDOW_WIDTH, WINDOW_HEIGHT, &nh)) {
         fprintf(stderr, "Failed to initialize renderer\n");
-        platform_shutdown();
-#ifdef ENABLE_LOGGER
-        logger_shutdown();
-#endif
+        window_destroy(win);
         return 1;
     }
 
     renderer_viewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
     renderer_swap_interval(0);
-
     renderer_enable(R_CAP_DEPTH_TEST);
     renderer_enable(R_CAP_CULL_FACE);
     renderer_enable(R_CAP_MULTISAMPLE);
 
-    ecs_init(&g_ecs, 4096);
-    components_init(&g_ecs);
+    g_ecs = world_create();
+    components_init(g_ecs);
     memset(g_block_entities, 0, sizeof(g_block_entities));
 
-    register_block_type(&g_ecs, BLOCK_AIR,    "kyub:air",    "Air",    false, false, 0.0f, NULL, NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_DIRT,   "kyub:dirt",   "Dirt",   true,  true,  1.0f, "assets/textures/dirt.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_GRASS,  "kyub:grass",  "Grass",  true,  true,  1.0f, "assets/textures/dirt.png", "assets/textures/grass_top.png", "assets/textures/dirt.png", "assets/textures/grass_side.png");
-    register_block_type(&g_ecs, BLOCK_STONE,  "kyub:stone",  "Stone",  true,  true,  2.0f, "assets/textures/stone.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_SAND,   "kyub:sand",   "Sand",   true,  true,  1.0f, "assets/textures/sand.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_GRAVEL, "kyub:gravel", "Gravel", true,  true,  1.0f, "assets/textures/gravel.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_WOOD,   "kyub:wood",   "Wood",   true,  true,  2.0f, "assets/textures/wood.png", NULL, NULL, NULL);
-    register_block_type(&g_ecs, BLOCK_LEAVES, "kyub:leaves", "Leaves", true,  false, 0.5f, "assets/textures/leaves.png", NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_AIR,    "kyub:air",    "Air",    false, false, 0.0f, NULL, NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_DIRT,   "kyub:dirt",   "Dirt",   true,  true,  1.0f, "assets/textures/dirt.png",   NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_GRASS,  "kyub:grass",  "Grass",  true,  true,  1.0f, "assets/textures/dirt.png",   "assets/textures/grass_top.png", "assets/textures/dirt.png", "assets/textures/grass_side.png");
+    register_block_type(g_ecs, BLOCK_STONE,  "kyub:stone",  "Stone",  true,  true,  2.0f, "assets/textures/stone.png",  NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_SAND,   "kyub:sand",   "Sand",   true,  true,  1.0f, "assets/textures/sand.png",   NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_GRAVEL, "kyub:gravel", "Gravel", true,  true,  1.0f, "assets/textures/gravel.png", NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_WOOD,   "kyub:wood",   "Wood",   true,  true,  2.0f, "assets/textures/wood.png",   NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_LEAVES, "kyub:leaves", "Leaves", true,  false, 0.5f, "assets/textures/leaves.png", NULL, NULL, NULL);
+    register_block_type(g_ecs, BLOCK_WATER,  "kyub:water",  "Water",  true,  true,  0.0f, "assets/textures/gravel.png", NULL, NULL, NULL);
 
-    /* Collect unique texture paths and build texture array */
-    const char *tex_paths[32];
-    int tex_path_count = 0;
+    /* Collect unique texture paths */
+    const char *tex_paths[32]; int tex_path_count = 0;
     for (int t = 0; t < 256; t++) {
-        Entity e = g_block_entities[t];
-        if (!e) continue;
-        C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
-        if (!def) continue;
+        entity_t e = g_block_entities[t]; if (e == ECS_ENTITY_NULL) continue;
+        C_BlockDef *def = entity_get_component(g_ecs, e, COMP_BLOCK_DEF); if (!def) continue;
         const char *paths[4] = {def->tex_path, def->tex_top, def->tex_bottom, def->tex_side};
         for (int p = 0; p < 4; p++) {
             if (!paths[p]) continue;
             bool found = false;
-            for (int i = 0; i < tex_path_count; i++) {
-                if (strcmp(tex_paths[i], paths[p]) == 0) { found = true; break; }
-            }
-            if (!found) {
-                if (tex_path_count < 32)
-                    tex_paths[tex_path_count++] = paths[p];
-                else
-                    LOG_WARN(CAT_WORLD, "Texture path limit (32) exceeded, dropping: %s", paths[p]);
-            }
+            for (int i = 0; i < tex_path_count; i++) if (strcmp(tex_paths[i], paths[p]) == 0) { found = true; break; }
+            if (!found && tex_path_count < 32) tex_paths[tex_path_count++] = paths[p];
         }
     }
 
     R_Texture tex_array = texture_load_array(tex_paths, tex_path_count, 16, 16);
-    if (tex_array == R_INVALID_HANDLE) {
-        fprintf(stderr, "Failed to load block texture array\n");
-        return 1;
-    }
+    if (tex_array == R_INVALID_HANDLE) { fprintf(stderr, "Failed to load block textures\n"); return 1; }
 
-    /* Resolve texture layer indices per block face */
+    /* Resolve layer indices */
     for (int t = 0; t < 256; t++) {
-        Entity e = g_block_entities[t];
-        if (!e) continue;
-        C_BlockDef *def = ecs_get(&g_ecs, e, COMP_BLOCK_DEF);
-        if (!def) continue;
+        entity_t e = g_block_entities[t]; if (e == ECS_ENTITY_NULL) continue;
+        C_BlockDef *def = entity_get_component(g_ecs, e, COMP_BLOCK_DEF); if (!def) continue;
         const char *paths[4] = {def->tex_path, def->tex_top, def->tex_bottom, def->tex_side};
         int *layers[4] = {&def->layer_default, &def->layer_top, &def->layer_bottom, &def->layer_side};
         for (int p = 0; p < 4; p++) {
             if (!paths[p]) continue;
-            for (int i = 0; i < tex_path_count; i++) {
+            for (int i = 0; i < tex_path_count; i++)
                 if (strcmp(tex_paths[i], paths[p]) == 0) { *layers[p] = i; break; }
-            }
         }
     }
 
-    R_Program shader_program = renderer_create_program("build/shaders/basic", "build/shaders/basic");
-    if (shader_program == R_INVALID_HANDLE) return 1;
+    R_Program shader_program  = renderer_create_program("shaders/basic.vert",   "shaders/basic.frag");
+    R_Program hud_program     = renderer_create_program("shaders/hud.vert",     "shaders/hud.frag");
+    R_Program skybox_program  = renderer_create_program("shaders/skybox.vert",  "shaders/skybox.frag");
+    R_Program outline_program = renderer_create_program("shaders/outline.vert", "shaders/outline.frag");
+    if (shader_program == R_INVALID_HANDLE || hud_program == R_INVALID_HANDLE ||
+        skybox_program == R_INVALID_HANDLE || outline_program == R_INVALID_HANDLE) {
+        fprintf(stderr, "Failed to load shaders\n"); return 1;
+    }
 
-    R_Program hud_program = renderer_create_program("build/shaders/hud", "build/shaders/hud");
-    if (hud_program == R_INVALID_HANDLE) return 1;
-
-    R_Program skybox_program = renderer_create_program("build/shaders/skybox", "build/shaders/skybox");
-    if (skybox_program == R_INVALID_HANDLE) return 1;
-
-    R_Program outline_program = renderer_create_program("build/shaders/outline", "build/shaders/outline");
-    if (outline_program == R_INVALID_HANDLE) return 1;
-
-    R_VAO skybox_vao = renderer_create_vao();
+    /* Skybox VAO */
+    R_VAO    skybox_vao = renderer_create_vao();
     R_Buffer skybox_vbo = renderer_create_buffer();
-    float skybox_tri[] = {
-        -1.0f, -1.0f,
-         3.0f, -1.0f,
-        -1.0f,  3.0f,
-    };
+    float skybox_tri[] = { -1.0f,-1.0f,  3.0f,-1.0f,  -1.0f,3.0f };
     renderer_bind_vao(skybox_vao);
     renderer_bind_buffer(R_BUF_ARRAY, skybox_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(skybox_tri), skybox_tri, R_USAGE_STATIC);
@@ -230,7 +165,8 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    R_VAO outline_vao = renderer_create_vao();
+    /* Outline VAO */
+    R_VAO    outline_vao = renderer_create_vao();
     R_Buffer outline_vbo = renderer_create_buffer();
     float outline_cube[] = {
         0,0,0, 1,0,0,   1,0,0, 1,0,1,   1,0,1, 0,0,1,   0,0,1, 0,0,0,
@@ -244,7 +180,8 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    R_VAO overlay_vao = renderer_create_vao();
+    /* Overlay (pause dim) VAO */
+    R_VAO    overlay_vao = renderer_create_vao();
     R_Buffer overlay_vbo = renderer_create_buffer();
     float overlay_tri[] = { -1.0f,-1.0f,  3.0f,-1.0f,  -1.0f,3.0f };
     renderer_bind_vao(overlay_vao);
@@ -254,40 +191,45 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    R_VAO hud_vao = renderer_create_vao();
+    /* HUD (crosshair) VAO — two thin quads (horizontal + vertical bar), each
+       as 2 triangles = 6 vertices.  The HUD pipeline is TRIANGLE_LIST so we
+       can't use raw line primitives; thin quads give the same visual effect. */
+    R_VAO    hud_vao = renderer_create_vao();
     R_Buffer hud_vbo = renderer_create_buffer();
+    float hw = 0.015f, hh = 0.0015f; /* crosshair half-width / half-thickness */
+    float vw = 0.0015f, vh = 0.020f;
     float crosshair[] = {
-        -0.015f, 0.0f,  0.015f, 0.0f,
-        0.0f, -0.02f,  0.0f, 0.02f
+        /* horizontal bar */
+        -hw, -hh,   hw, -hh,   hw,  hh,
+        -hw, -hh,   hw,  hh,  -hw,  hh,
+        /* vertical bar */
+        -vw, -vh,   vw, -vh,   vw,  vh,
+        -vw, -vh,   vw,  vh,  -vw,  vh,
     };
     renderer_bind_vao(hud_vao);
     renderer_bind_buffer(R_BUF_ARRAY, hud_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(crosshair), crosshair, R_USAGE_STATIC);
     renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
     renderer_enable_attrib(0);
-    renderer_bind_vao(hud_vao);
+    renderer_bind_vao(R_INVALID_HANDLE);
 
-    /* Hotbar: 7 placeable block slots at bottom of screen */
-    R_VAO hotbar_vao = renderer_create_vao();
-    R_Buffer hotbar_vbo = renderer_create_buffer();
-#define HOTBAR_SLOTS 7
+    /* Hotbar VAO */
+#define HOTBAR_SLOTS       7
 #define HOTBAR_SQUARE_SIZE 0.07f
-#define HOTBAR_GAP 0.015f
+#define HOTBAR_GAP         0.015f
+    R_VAO    hotbar_vao = renderer_create_vao();
+    R_Buffer hotbar_vbo = renderer_create_buffer();
     float hotbar_total_w = HOTBAR_SLOTS * HOTBAR_SQUARE_SIZE + (HOTBAR_SLOTS - 1) * HOTBAR_GAP;
     float hotbar_start_x = -hotbar_total_w / 2.0f;
-    float hotbar_y0 = -0.93f;
-    float hotbar_y1 = hotbar_y0 + HOTBAR_SQUARE_SIZE;
+    float hotbar_y0 = -0.93f, hotbar_y1 = hotbar_y0 + HOTBAR_SQUARE_SIZE;
     float hotbar_verts[HOTBAR_SLOTS * 6 * 2];
     for (int i = 0; i < HOTBAR_SLOTS; i++) {
         float x0 = hotbar_start_x + i * (HOTBAR_SQUARE_SIZE + HOTBAR_GAP);
         float x1 = x0 + HOTBAR_SQUARE_SIZE;
-        int vi = i * 12; /* 6 vertices * 2 floats */
-        hotbar_verts[vi+0]  = x0; hotbar_verts[vi+1]  = hotbar_y0;
-        hotbar_verts[vi+2]  = x1; hotbar_verts[vi+3]  = hotbar_y0;
-        hotbar_verts[vi+4]  = x1; hotbar_verts[vi+5]  = hotbar_y1;
-        hotbar_verts[vi+6]  = x0; hotbar_verts[vi+7]  = hotbar_y0;
-        hotbar_verts[vi+8]  = x1; hotbar_verts[vi+9]  = hotbar_y1;
-        hotbar_verts[vi+10] = x0; hotbar_verts[vi+11] = hotbar_y1;
+        int vi = i * 12;
+        hotbar_verts[vi+0]=x0; hotbar_verts[vi+1]=hotbar_y0; hotbar_verts[vi+2]=x1; hotbar_verts[vi+3]=hotbar_y0;
+        hotbar_verts[vi+4]=x1; hotbar_verts[vi+5]=hotbar_y1; hotbar_verts[vi+6]=x0; hotbar_verts[vi+7]=hotbar_y0;
+        hotbar_verts[vi+8]=x1; hotbar_verts[vi+9]=hotbar_y1; hotbar_verts[vi+10]=x0; hotbar_verts[vi+11]=hotbar_y1;
     }
     renderer_bind_vao(hotbar_vao);
     renderer_bind_buffer(R_BUF_ARRAY, hotbar_vbo);
@@ -299,272 +241,250 @@ int main(void) {
     Gui gui;
     gui_init(&gui, hud_program);
 
+    ui_t debug_ui;
+    ui_init(&debug_ui);
+    const ui_draw_t game_draw = {game_ui_rect, game_ui_text, &gui};
+
     World world;
-    world_init(&world, 2);
+    world_init(&world, 6);
 
-    Camera camera;
-    camera_init(&camera, &g_ecs);
+    fps_camera_t camera;
+    fps_camera_init(&camera);
+    entity_t player = entity_create(g_ecs);
+    C_Transform *pt = entity_add_component(g_ecs, player, COMP_TRANSFORM);
+    pt->position = (vec3){8.0f, 20.0f, 8.0f};
+    pt->yaw = -90.0f; pt->pitch = -45.0f;
+    C_Movement *pm = entity_add_component(g_ecs, player, COMP_MOVEMENT);
+    pm->velocity = (vec3){0.0f, 0.0f, 0.0f}; pm->speed = 5.0f; pm->grounded = false;
+    C_Health *ph = entity_add_component(g_ecs, player, COMP_HEALTH);
+    ph->current = ph->max = 20.0f;
 
-    C_Transform *player_transform = ecs_get(&g_ecs, camera.player, COMP_TRANSFORM);
-    vec3 player_pos = player_transform ? player_transform->position : (vec3){8.0f, 20.0f, 8.0f};
+    C_Transform *player_transform = pt;
+    vec3 player_pos = player_transform->position;
 
-    /* Find safe spawn position - move player above terrain */
-    /* First update world to load chunks at initial position */
     world_update(&world, player_pos);
-    /* Wait a few frames for chunks to load */
-    for (int i = 0; i < 10; i++) {
-        world_update(&world, player_pos);
-    }
-    /* Find ground height at spawn position */
+    for (int i = 0; i < 10; i++) world_update(&world, player_pos);
+
     int spawn_x = (int)floorf(player_pos.x);
     int spawn_z = (int)floorf(player_pos.z);
     int ground_y = 0;
     for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
-        if (world_is_solid(&world, spawn_x, y, spawn_z)) {
-            ground_y = y;
-            break;
-        }
+        if (world_is_solid(&world, spawn_x, y, spawn_z)) { ground_y = y; break; }
     }
-    /* Place player 2 blocks above ground */
-    if (player_transform) {
+    if (player_transform)
         player_transform->position.y = (float)(ground_y + 2) + PLAYER_EYES_HEIGHT;
-    }
-    LOG_INFO(CAT_PLATFORM, "Spawn position set to y=%.2f (ground at y=%d)",
+    LOG_INFO(CAT_PLATFORM, "Spawn at y=%.2f (ground at y=%d)",
              player_transform ? player_transform->position.y : 20.0f, ground_y);
 
-    BlockType selected_block = BLOCK_STONE;
-    int render_distance = world.render_distance;
+    BlockType   selected_block = BLOCK_STONE;
+    int         render_distance = world.render_distance;
+    float       fov_degrees = FOV_DEFAULT;
+    PauseScreen pause_screen = PAUSE_MAIN;
 
-    platform_hide_cursor(true);
-    platform_grab_mouse(true);
+    window_set_cursor_mode(win, CURSOR_DISABLED);
 
-    double last_time = get_time_s();
-    double last_fps_update = 0.0;
+    double last_time       = kln_timer_now();
     double last_save_flush = 0.0;
-    bool running = true;
-    bool paused = false;
-    int win_width = WINDOW_WIDTH;
-    int win_height = WINDOW_HEIGHT;
+    bool   running         = true;
+    bool   paused          = false;
+    bool   show_debug      = false;
+    float  fps             = 0.0f;
+    double fps_acc         = 0.0;
+    int    fps_frames      = 0;
+    uint32_t win_width  = WINDOW_WIDTH;
+    uint32_t win_height = WINDOW_HEIGHT;
+    window_size(win, &win_width, &win_height);
 
-    platform_get_window_size(&win_width, &win_height);
-
-    GameInput game_input = {0};
+    GameInput game_input; game_input_init(&game_input);
 
     while (running) {
-        platform_get_window_size(&win_width, &win_height);
-        double now = get_time_s();
+        window_size(win, &win_width, &win_height);
+        double now = kln_timer_now();
+        double dt  = now - last_time;
+        last_time  = now;
 
-        double dt = now - last_time;
-        last_time = now;
+        fps_acc += dt; fps_frames++;
+        if (fps_acc >= 0.5) { fps = (float)(fps_frames / fps_acc); fps_acc = 0; fps_frames = 0; }
 
-        Event event;
-        while (platform_poll_event(&event)) {
+        event_t event;
+        while (window_poll_event(win, &event)) {
             game_input_handle_event(&game_input, &event);
 
             switch (event.type) {
-                case EVENT_KEY_DOWN:
-                    if (event.key.key == 't' || event.key.key == 0x1B) {
+            case EVENT_KEY_DOWN:
+                if (event.key.keysym == 't' || event.key.code == KEY_ESCAPE) {
+                    if (paused && pause_screen == PAUSE_OPTIONS) {
+                        pause_screen = PAUSE_MAIN;
+                    } else {
                         paused = !paused;
-                        platform_hide_cursor(!paused);
-                        platform_grab_mouse(!paused);
+                        if (!paused) pause_screen = PAUSE_MAIN;
+                        window_set_cursor_mode(win, paused ? CURSOR_NORMAL : CURSOR_DISABLED);
                     }
-                    break;
-                case EVENT_MOUSE_MOTION:
-                    if (!paused) {
-                        int dx = event.mouse_motion.x - win_width / 2;
-                        int dy = event.mouse_motion.y - win_height / 2;
-                        if (dx != 0 || dy != 0) {
-                            game_input.mouse_dx += (float)dx;
-                            game_input.mouse_dy += (float)dy;
-                            platform_warp_mouse(win_width / 2, win_height / 2);
-                        }
-                    }
-                    break;
-                case EVENT_SCROLL:
-                    if (!paused && event.scroll.dy != 0) {
-                        int next = (int)selected_block + (event.scroll.dy > 0 ? 1 : -1);
-                        if (next > BLOCK_LEAVES) next = BLOCK_DIRT;
-                        if (next < BLOCK_DIRT)  next = BLOCK_LEAVES;
-                        selected_block = (BlockType)next;
-                    }
-                    break;
-                case EVENT_RESIZE:
-                    win_width = event.resize.width;
-                    win_height = event.resize.height;
-                    renderer_viewport(0, 0, win_width, win_height);
-                    break;
-                case EVENT_QUIT:
-                    running = false;
-                    break;
-                default:
-                    break;
+                }
+                if (event.key.keysym == 0xFFC0) /* F3 */ show_debug = !show_debug;
+                break;
+            case EVENT_SCROLL:
+                if (!paused && event.scroll.delta != 0.0f) {
+                    int next = (int)selected_block + (event.scroll.delta > 0.0f ? 1 : -1);
+                    if (next > BLOCK_LEAVES) next = BLOCK_DIRT;
+                    if (next < BLOCK_DIRT)   next = BLOCK_LEAVES;
+                    selected_block = (BlockType)next;
+                }
+                break;
+            case EVENT_RESIZE:
+                win_width  = event.resize.width;
+                win_height = event.resize.height;
+                renderer_viewport(0, 0, (int)win_width, (int)win_height);
+                break;
+            case EVENT_QUIT:
+                running = false;
+                break;
+            default:
+                break;
             }
         }
 
-#ifdef ENABLE_LOGGER
-        if (game_input.keys['w'] || game_input.keys['a'] || game_input.keys['s'] || game_input.keys['d']) {
-            LOG_DEBUG(CAT_INPUT, "main post-events: w=%d a=%d s=%d d=%d",
-                game_input.keys['w'], game_input.keys['a'], game_input.keys['s'], game_input.keys['d']);
-        }
-        double timing_start = get_time_s();
-        double frame_start = timing_start;
-#define LOG_TIMING(name) do { \
-    double _t = get_time_s(); \
-    double _dt = _t - timing_start; \
-    if (_dt > 0.001) LOG_DEBUG(CAT_PLATFORM, "TIMING %-20s %.3f ms", name, _dt * 1000.0); \
-    timing_start = _t; \
-} while(0)
-#else
-#define LOG_TIMING(name) ((void)0)
-#endif
-
-        gui_begin_frame(&gui, win_width, win_height, game_input.mouse_x, game_input.mouse_y, game_input.mouse_left);
+        gui_begin_frame(&gui, (int)win_width, (int)win_height,
+                        (int)game_input.mouse_x, (int)game_input.mouse_y,
+                        game_input.mouse_left);
 
         if (paused) {
-            GameInput zero_input = {0};
-            camera_update(&camera, (float)dt, &world, &zero_input, &g_ecs);
-            // Manually ensure movement is also zeroed
-            sys_movement(&g_ecs, &world, 0.0f);
+            sys_movement(g_ecs, &world, 0.0f);
         } else {
-            camera_update(&camera, (float)dt, &world, &game_input, &g_ecs);
-            sys_movement(&g_ecs, &world, (float)dt);
+            /* Mouse look */
+            fps_camera_rotate(&camera, game_input.mouse_dx, game_input.mouse_dy);
+            game_input.mouse_dx = 0; game_input.mouse_dy = 0;
+
+            /* WASD movement — set velocity; sys_movement integrates + resolves collision */
+            C_Transform *ct = entity_get_component(g_ecs, player, COMP_TRANSFORM);
+            C_Movement  *cm = entity_get_component(g_ecs, player, COMP_MOVEMENT);
+            if (ct && cm) {
+                float speed = cm->speed;
+                if (game_input.keys[0xe1]) speed *= 6.0f; /* Shift sprint */
+                vec3 right = vec3_normalize(vec3_cross(camera.front, camera.up));
+                vec3 move = {0.0f, 0.0f, 0.0f};
+                if (game_input.keys['w']) move = vec3_add(move, camera.front);
+                if (game_input.keys['s']) move = vec3_sub(move, camera.front);
+                if (game_input.keys['a']) move = vec3_sub(move, right);
+                if (game_input.keys['d']) move = vec3_add(move, right);
+                move.y = 0.0f;
+                if (move.x != 0.0f || move.z != 0.0f) {
+                    move = vec3_normalize(move);
+                    cm->velocity.x = move.x * speed;
+                    cm->velocity.z = move.z * speed;
+                } else {
+                    cm->velocity.x = 0.0f;
+                    cm->velocity.z = 0.0f;
+                }
+                if (game_input.keys[' '] && cm->grounded) {
+                    cm->velocity.y = JUMP_VELOCITY;
+                    cm->grounded = false;
+                }
+            }
+            sys_movement(g_ecs, &world, (float)dt);
         }
-        LOG_TIMING("camera_update");
 
         static float break_cooldown = 0.0f;
         static float place_cooldown = 0.0f;
         break_cooldown -= (float)dt;
         place_cooldown -= (float)dt;
 
-        player_transform = ecs_get(&g_ecs, camera.player, COMP_TRANSFORM);
-        vec3 cam_pos = player_transform ? player_transform->position : (vec3){0, 0, 0};
+        player_transform = entity_get_component(g_ecs, player, COMP_TRANSFORM);
+        vec3 cam_pos = player_transform ? player_transform->position : (vec3){0.0f, 0.0f, 0.0f};
 
         if (!paused) {
             if (game_input.mouse_left && break_cooldown <= 0.0f) {
                 BlockPos hit;
-                LOG_DEBUG(CAT_WORLD, "Break raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f",
-                          cam_pos.x, cam_pos.y, cam_pos.z, camera.front.x, camera.front.y, camera.front.z);
-                if (raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit)) {
-                    LOG_DEBUG(CAT_WORLD, "Break setting block %d,%d,%d to AIR", hit.x, hit.y, hit.z);
+                if (raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit))
                     world_set_block(&world, hit.x, hit.y, hit.z, BLOCK_AIR);
-                } else {
-                    LOG_DEBUG(CAT_WORLD, "Break no block hit in range");
-                }
                 break_cooldown = COOLDOWN_TIME;
             }
             if (game_input.mouse_right && place_cooldown <= 0.0f) {
                 BlockPos hit, prev;
-                LOG_DEBUG(CAT_WORLD, "Place raycast from pos=%.2f,%.2f,%.2f dir=%.2f,%.2f,%.2f",
-                          cam_pos.x, cam_pos.y, cam_pos.z, camera.front.x, camera.front.y, camera.front.z);
                 if (raycast_find_solid_with_prev(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit, &prev)) {
-                    BlockType prev_b = world_get_block(&world, prev.x, prev.y, prev.z);
-                    LOG_DEBUG(CAT_WORLD, "Place hit block at %d,%d,%d, prev=%d,%d,%d type=%d",
-                              hit.x, hit.y, hit.z, prev.x, prev.y, prev.z, prev_b);
-                    if (prev_b == BLOCK_AIR) {
-                        // Check if block placement overlaps with player
-                        if (!player_collides_with_block(&world, cam_pos, prev)) {
-                            LOG_DEBUG(CAT_WORLD, "Place setting block %d,%d,%d to type=%d", prev.x, prev.y, prev.z, selected_block);
+                    if (world_get_block(&world, prev.x, prev.y, prev.z) == BLOCK_AIR)
+                        if (!player_collides_with_block(&world, cam_pos, prev))
                             world_set_block(&world, prev.x, prev.y, prev.z, selected_block);
-                        } else {
-                            LOG_DEBUG(CAT_WORLD, "Place failed: block overlaps player");
-                        }
-                    }
-                } else {
-                    LOG_DEBUG(CAT_WORLD, "Place no block hit in range");
                 }
                 place_cooldown = COOLDOWN_TIME;
             }
         }
 
-        LOG_TIMING("raycasts");
-
-        // Block highlight raycast
-        BlockPos hl;
-        bool hl_found = raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hl);
+        BlockPos hl; bool hl_found = raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hl);
 
         renderer_enable(R_CAP_DEPTH_TEST);
         renderer_enable(R_CAP_CULL_FACE);
         renderer_disable(R_CAP_BLEND);
-
         renderer_clear(0.1f, 0.1f, 0.12f, 1.0f);
-        LOG_TIMING("renderer_clear");
 
-        /* Update world after fence wait to avoid GPU read/write race on buffers */
         world_update(&world, cam_pos);
-        LOG_TIMING("world_update");
 
         renderer_use_program(shader_program);
         renderer_active_texture(0);
         renderer_bind_texture(R_TEX_2D, tex_array);
-        int tex_loc = renderer_uniform_location(shader_program, "uTexture");
-        renderer_uniform_int(tex_loc, 0);
-        int fog_color_loc = renderer_uniform_location(shader_program, "uFogColor");
-        renderer_uniform_vec3(fog_color_loc, 0.53f, 0.81f, 0.92f);
-        int fog_density_loc = renderer_uniform_location(shader_program, "uFogDensity");
-        renderer_uniform_float(fog_density_loc, 0.015f);
+        renderer_uniform_int(renderer_uniform_location(shader_program, "uTexture"), 0);
+        renderer_uniform_vec3(renderer_uniform_location(shader_program, "uFogColor"), 0.53f, 0.81f, 0.92f);
+        renderer_uniform_float(renderer_uniform_location(shader_program, "uFogDensity"), 0.005f);
 
-        mat4 projection = mat4_perspective(FOV_DEGREES * PI / 180.0f, (float)win_width / (float)win_height, NEAR_PLANE, FAR_PLANE);
-        mat4 view = camera_get_view_matrix(&camera, &g_ecs);
+        float aspect = (win_height > 0) ? (float)win_width / (float)win_height : 1.0f;
+        mat4 projection = mat4_perspective(fov_degrees * PI / 180.0f, aspect, NEAR_PLANE, FAR_PLANE);
+        mat4 view       = fps_camera_view(&camera, cam_pos);
 
-        Frustum frustum;
-        frustum_extract(&frustum, mat4_multiply(projection, view));
+        Frustum frustum; frustum_extract(&frustum, mat4_mul(projection, view));
 
         int model_loc = renderer_uniform_location(shader_program, "model");
-        int view_loc = renderer_uniform_location(shader_program, "view");
+        int view_loc  = renderer_uniform_location(shader_program, "view");
+        int proj_loc  = renderer_uniform_location(shader_program, "projection");
         renderer_uniform_mat4(view_loc, view.m);
-        int proj_loc = renderer_uniform_location(shader_program, "projection");
         renderer_uniform_mat4(proj_loc, projection.m);
 
+        int cam_cx = (int)floorf(cam_pos.x / (float)CHUNK_SIZE);
+        int cam_cz = (int)floorf(cam_pos.z / (float)CHUNK_SIZE);
         for (int i = 0; i < world.capacity; i++) {
-            if (world.chunks[i].active && frustum_intersects_box(&frustum, world.chunks[i].chunk->min, world.chunks[i].chunk->max)) {
-                /* Model matrix is identity - vertices already contain world position */
-                mat4 model = mat4_identity();
-                renderer_uniform_mat4(model_loc, model.m);
-                renderer_bind_vao(world.chunks[i].mesh->vao);
-                renderer_draw_arrays(R_PRIM_TRIANGLES, 0, world.chunks[i].mesh->vertex_count);
-            }
+            if (!world.chunks[i].active) continue;
+            if (!frustum_intersects_aabb(&frustum, world.chunks[i].chunk->min, world.chunks[i].chunk->max)) continue;
+            int dx   = abs(world.chunks[i].chunk->x - cam_cx);
+            int dz   = abs(world.chunks[i].chunk->z - cam_cz);
+            int dist = dx > dz ? dx : dz;
+            int lod  = dist <= 2 ? 0 : dist <= 5 ? 1 : 2;
+            Mesh *m  = world.chunks[i].meshes[lod];
+            if (m->vertex_count == 0) continue;
+            mat4 model = mat4_identity();
+            renderer_uniform_mat4(model_loc, model.m);
+            renderer_bind_vao(m->vao);
+            renderer_draw_arrays(R_PRIM_TRIANGLES, 0, (int)m->vertex_count);
         }
 
-        // Render block highlight outline
+        /* Block highlight outline */
         if (hl_found) {
             renderer_use_program(outline_program);
-            mat4 hl_model = mat4_translate((vec3){(float)hl.x, (float)hl.y, (float)hl.z});
-            int ol_model_loc = renderer_uniform_location(outline_program, "model");
-            renderer_uniform_mat4(ol_model_loc, hl_model.m);
-            int ol_view_loc = renderer_uniform_location(outline_program, "view");
-            renderer_uniform_mat4(ol_view_loc, view.m);
-            int ol_proj_loc = renderer_uniform_location(outline_program, "projection");
-            renderer_uniform_mat4(ol_proj_loc, projection.m);
-            int ol_color_loc = renderer_uniform_location(outline_program, "uColor");
-            renderer_uniform_vec3(ol_color_loc, 0.6f, 0.6f, 0.6f);
-
+            mat4 hl_model = mat4_translation((vec3){(float)hl.x, (float)hl.y, (float)hl.z});
+            renderer_uniform_mat4(renderer_uniform_location(outline_program, "model"), hl_model.m);
+            renderer_uniform_mat4(renderer_uniform_location(outline_program, "view"),  view.m);
+            renderer_uniform_mat4(renderer_uniform_location(outline_program, "projection"), projection.m);
+            renderer_uniform_vec3(renderer_uniform_location(outline_program, "uColor"), 0.6f, 0.6f, 0.6f);
             renderer_depth_mask(false);
             renderer_polygon_offset(-1.0f, -1.0f);
             renderer_enable(R_CAP_POLYGON_OFFSET_LINE);
             renderer_line_width(3.0f);
-
             renderer_bind_vao(outline_vao);
             renderer_draw_arrays(R_PRIM_LINES, 0, 24);
             renderer_bind_vao(R_INVALID_HANDLE);
-
             renderer_line_width(1.0f);
             renderer_disable(R_CAP_POLYGON_OFFSET_LINE);
             renderer_depth_mask(true);
         }
 
+        /* Skybox */
         renderer_depth_mask(false);
         renderer_depth_func(R_FUNC_LEQUAL);
         renderer_disable(R_CAP_CULL_FACE);
         renderer_use_program(skybox_program);
-        mat4 skybox_projection = mat4_perspective(FOV_DEGREES * PI / 180.0f, (float)win_width / (float)win_height, NEAR_PLANE, FAR_PLANE);
-        mat4 inv_projection = mat4_inverse(skybox_projection);
-        mat4 view_rotation = view;
-        view_rotation.m[12] = 0; view_rotation.m[13] = 0; view_rotation.m[14] = 0;
-        mat4 inv_view_rotation = mat4_transpose(view_rotation);
-        int sb_inv_proj_loc = renderer_uniform_location(skybox_program, "inv_projection");
-        renderer_uniform_mat4(sb_inv_proj_loc, inv_projection.m);
-        int sb_inv_view_loc = renderer_uniform_location(skybox_program, "inv_view_rotation");
-        renderer_uniform_mat4(sb_inv_view_loc, inv_view_rotation.m);
+        mat4 inv_proj         = mat4_inverse(projection);
+        mat4 view_rot         = view; view_rot.m[12] = view_rot.m[13] = view_rot.m[14] = 0;
+        mat4 inv_view_rot     = mat4_transpose(view_rot);
+        renderer_uniform_mat4(renderer_uniform_location(skybox_program, "inv_projection"),    inv_proj.m);
+        renderer_uniform_mat4(renderer_uniform_location(skybox_program, "inv_view_rotation"), inv_view_rot.m);
         renderer_bind_vao(skybox_vao);
         renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
         renderer_bind_vao(R_INVALID_HANDLE);
@@ -572,17 +492,16 @@ int main(void) {
         renderer_depth_func(R_FUNC_LESS);
         renderer_depth_mask(true);
 
+        /* HUD */
         renderer_disable(R_CAP_DEPTH_TEST);
         renderer_enable(R_CAP_BLEND);
         renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
         renderer_use_program(hud_program);
         renderer_bind_vao(hud_vao);
         renderer_bind_buffer(R_BUF_ARRAY, hud_vbo);
-        int hud_color_loc = renderer_uniform_location(hud_program, "uColor");
-        renderer_uniform_vec3(hud_color_loc, 0.7f, 0.7f, 0.7f);
-        int hud_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
-        renderer_uniform_float(hud_alpha_loc, 1.0f);
-        renderer_draw_arrays(R_PRIM_LINES, 0, 4);
+        renderer_uniform_vec3(renderer_uniform_location(hud_program, "uColor"), 0.7f, 0.7f, 0.7f);
+        renderer_uniform_float(renderer_uniform_location(hud_program, "uAlpha"), 1.0f);
+        renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 12);
 
         /* Hotbar */
         int hb_color_loc = renderer_uniform_location(hud_program, "uColor");
@@ -591,12 +510,9 @@ int main(void) {
         renderer_bind_vao(hotbar_vao);
         renderer_bind_buffer(R_BUF_ARRAY, hotbar_vbo);
         for (int i = 0; i < HOTBAR_SLOTS; i++) {
-            BlockType slot_type = (BlockType)(BLOCK_DIRT + i);
-            if (slot_type == selected_block) {
-                renderer_uniform_vec3(hb_color_loc, 1.0f, 1.0f, 1.0f);
-            } else {
-                renderer_uniform_vec3(hb_color_loc, 0.3f, 0.3f, 0.3f);
-            }
+            BlockType slot = (BlockType)(BLOCK_DIRT + i);
+            if (slot == selected_block) renderer_uniform_vec3(hb_color_loc, 1.0f, 1.0f, 1.0f);
+            else                        renderer_uniform_vec3(hb_color_loc, 0.3f, 0.3f, 0.3f);
             renderer_draw_arrays(R_PRIM_TRIANGLES, i * 6, 6);
         }
         renderer_bind_vao(R_INVALID_HANDLE);
@@ -604,59 +520,121 @@ int main(void) {
         renderer_use_program(R_INVALID_HANDLE);
         renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
 
+        /* Pause overlay */
         if (paused) {
-            renderer_enable(R_CAP_BLEND);
-            renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
-            renderer_disable(R_CAP_DEPTH_TEST);
-            renderer_disable(R_CAP_CULL_FACE);
-
             renderer_use_program(hud_program);
-            int p_color_loc = renderer_uniform_location(hud_program, "uColor");
-            renderer_uniform_vec3(p_color_loc, 0.0f, 0.0f, 0.0f);
-            int p_alpha_loc = renderer_uniform_location(hud_program, "uAlpha");
-            renderer_uniform_float(p_alpha_loc, 0.3f);
-            
+            renderer_uniform_vec3(renderer_uniform_location(hud_program, "uColor"), 0.0f, 0.0f, 0.0f);
+            renderer_uniform_float(renderer_uniform_location(hud_program, "uAlpha"), 0.45f);
             renderer_bind_vao(overlay_vao);
             renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
             renderer_bind_vao(R_INVALID_HANDLE);
-            
-            gui_write_text(&gui, (float)win_width * 0.5f - 54.0f, (float)win_height * 0.5f - 78.0f,
-                           "Paused", 4.0f, 0.9f, 0.9f, 0.9f);
-            gui_create_button(&gui, (float)win_width * 0.5f - 110.0f, (float)win_height * 0.5f - 20.0f,
-                              220.0f, 44.0f, "quit game", quit_button_callback, &running);
-            
+
+#define BTN_W 240.0f
+#define BTN_H 48.0f
+#define BTN_GAP 14.0f
+            float cx = (float)win_width  * 0.5f;
+            float cy = (float)win_height * 0.5f;
+            float bx = cx - BTN_W * 0.5f;
+
+            if (pause_screen == PAUSE_MAIN) {
+                float total_h = 3.0f * BTN_H + 2.0f * BTN_GAP;
+                float by = cy - total_h * 0.5f;
+
+                float title_scale = 4.0f;
+                float tw = gui_text_width("PAUSED", title_scale);
+                float th = 7.0f * title_scale; /* font height */
+                gui_write_text(&gui, cx - tw * 0.5f, by - th - 18.0f,
+                               "PAUSED", title_scale, 0.95f, 0.95f, 0.95f);
+
+                if (gui_create_button(&gui, bx, by, BTN_W, BTN_H, "resume", NULL, NULL)) {
+                    paused = false;
+                    pause_screen = PAUSE_MAIN;
+                    window_set_cursor_mode(win, CURSOR_DISABLED);
+                }
+                by += BTN_H + BTN_GAP;
+                if (gui_create_button(&gui, bx, by, BTN_W, BTN_H, "options", NULL, NULL))
+                    pause_screen = PAUSE_OPTIONS;
+                by += BTN_H + BTN_GAP;
+                gui_create_button(&gui, bx, by, BTN_W, BTN_H, "quit game",
+                                  quit_button_callback, &running);
+
+            } else { /* PAUSE_OPTIONS */
+                float title_scale = 4.0f;
+                float tw = gui_text_width("OPTIONS", title_scale);
+                float th = 7.0f * title_scale;
+
+                /* Options panel via the debug_ui system */
+                float panel_w = 280.0f;
+                float panel_x = cx - panel_w * 0.5f;
+                float panel_y = cy - 130.0f;
+
+                gui_write_text(&gui, cx - tw * 0.5f, panel_y - th - 12.0f,
+                               "OPTIONS", title_scale, 0.95f, 0.95f, 0.95f);
+
+                ui_input_t ui_in = {
+                    .mouse_x      = game_input.mouse_x,
+                    .mouse_y      = game_input.mouse_y,
+                    .mouse_down   = game_input.mouse_left,
+                    .pointer_valid = true,
+                };
+                ui_begin(&debug_ui, &ui_in, (float)win_width, (float)win_height, &game_draw);
+                ui_panel_begin(&debug_ui, panel_x, panel_y, panel_w);
+                ui_slider_int(&debug_ui, "render dist", &render_distance, 1, 16);
+                ui_slider_float(&debug_ui, "sensitivity",
+                                &camera.sensitivity, 0.0005f, 0.005f);
+                ui_slider_float(&debug_ui, "FOV", &fov_degrees, 30.0f, 110.0f);
+                ui_panel_end(&debug_ui);
+                ui_end(&debug_ui);
+                world.render_distance = render_distance;
+
+                float back_w = 140.0f;
+                if (gui_create_button(&gui, cx - back_w * 0.5f, panel_y + 200.0f,
+                                      back_w, BTN_H, "back", NULL, NULL))
+                    pause_screen = PAUSE_MAIN;
+            }
+#undef BTN_W
+#undef BTN_H
+#undef BTN_GAP
             renderer_use_program(R_INVALID_HANDLE);
-            renderer_enable(R_CAP_DEPTH_TEST);
-            renderer_enable(R_CAP_CULL_FACE);
         }
 
-        int active_chunks = 0;
-        for (int i = 0; i < world.capacity; i++) {
-            if (world.chunks[i].active) active_chunks++;
+        /* Debug panel (F3) — suppressed while pause menu is open */
+        if (show_debug && !paused) {
+            renderer_disable(R_CAP_DEPTH_TEST);
+            renderer_enable(R_CAP_BLEND);
+            renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
+            renderer_use_program(hud_program);
+
+            int active_chunks = 0;
+            for (int i = 0; i < world.capacity; i++) if (world.chunks[i].active) active_chunks++;
+
+            ui_input_t ui_in = {
+                .mouse_x     = game_input.mouse_x,
+                .mouse_y     = game_input.mouse_y,
+                .mouse_down  = game_input.mouse_left,
+                .pointer_valid = paused, /* only interactive when paused */
+            };
+            ui_begin(&debug_ui, &ui_in, (float)win_width, (float)win_height, &game_draw);
+            ui_panel_begin(&debug_ui, 10.0f, 10.0f, 240.0f);
+            ui_text(&debug_ui, "%.0f fps", (double)fps);
+            ui_text(&debug_ui, "pos  %.1f %.1f %.1f",
+                    (double)cam_pos.x, (double)cam_pos.y, (double)cam_pos.z);
+            ui_progress(&debug_ui, "chunks", (float)active_chunks, (float)world.capacity);
+            ui_separator(&debug_ui);
+            ui_slider_int(&debug_ui, "render dist", &render_distance, 1, 16);
+            ui_panel_end(&debug_ui);
+            ui_end(&debug_ui);
+
+            renderer_enable(R_CAP_DEPTH_TEST);
         }
-        if (now - last_fps_update >= 0.5) {
-            last_fps_update = now;
-        }
-        if (now - last_save_flush >= 5.0) {
-            world_flush_saves(&world);
-            last_save_flush = now;
-        }
+
+        if (now - last_save_flush >= 5.0) { world_flush_saves(&world); last_save_flush = now; }
 
         world.render_distance = render_distance;
-
         renderer_enable(R_CAP_DEPTH_TEST);
-        LOG_TIMING("rendering");
-
         renderer_swap();
-        LOG_TIMING("renderer_swap");
 
-#ifdef ENABLE_LOGGER
-        double frame_end = get_time_s();
-        double frame_dt = frame_end - frame_start;
-        if (frame_dt > 0.1) {
-            LOG_WARN(CAT_PLATFORM, "SLOW FRAME: %.3f ms", frame_dt * 1000.0);
-        }
-#endif
+        game_input_end_frame(&game_input);
     }
 
     world_flush_saves(&world);
@@ -665,25 +643,20 @@ int main(void) {
     renderer_destroy_program(hud_program);
     renderer_destroy_program(skybox_program);
     renderer_destroy_program(outline_program);
-    renderer_destroy_vao(skybox_vao);
-    renderer_destroy_buffer(skybox_vbo);
-    renderer_destroy_vao(outline_vao);
-    renderer_destroy_buffer(outline_vbo);
-    renderer_destroy_vao(overlay_vao);
-    renderer_destroy_buffer(overlay_vbo);
-    renderer_destroy_vao(hud_vao);
-    renderer_destroy_buffer(hud_vbo);
-    renderer_destroy_vao(hotbar_vao);
-    renderer_destroy_buffer(hotbar_vbo);
+    renderer_destroy_vao(skybox_vao);   renderer_destroy_buffer(skybox_vbo);
+    renderer_destroy_vao(outline_vao);  renderer_destroy_buffer(outline_vbo);
+    renderer_destroy_vao(overlay_vao);  renderer_destroy_buffer(overlay_vbo);
+    renderer_destroy_vao(hud_vao);      renderer_destroy_buffer(hud_vbo);
+    renderer_destroy_vao(hotbar_vao);   renderer_destroy_buffer(hotbar_vbo);
     gui_shutdown(&gui);
     renderer_destroy_texture(tex_array);
     renderer_shutdown();
-    ecs_shutdown(&g_ecs);
+    world_destroy(g_ecs);
 
 #ifdef ENABLE_LOGGER
-    logger_shutdown();
+    log_shutdown();
 #endif
 
-    platform_shutdown();
+    window_destroy(win);
     return 0;
 }

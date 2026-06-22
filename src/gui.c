@@ -1,6 +1,5 @@
 #include "gui.h"
 #include <string.h>
-#include <ctype.h>
 
 #define GUI_FONT_W 5
 #define GUI_FONT_H 7
@@ -21,19 +20,20 @@ static float gui_ndc_y(const Gui *gui, float y) {
 }
 
 static void gui_draw_triangles(Gui *gui, const float *verts, int vertex_count, float r, float g, float b, float a) {
-    gui_set_color(gui, r, g, b, a);
-    renderer_bind_vao(gui->vao);
-    renderer_bind_buffer(R_BUF_ARRAY, gui->vbo);
-    renderer_buffer_data(R_BUF_ARRAY, (size_t)vertex_count * 2 * sizeof(float), verts, R_USAGE_DYNAMIC);
-    renderer_draw_arrays(R_PRIM_TRIANGLES, 0, vertex_count);
-}
+    /* Each draw gets its own slice of the pre-allocated VBO so that all draws
+       issued in a frame remain valid when the command buffer executes on the GPU.
+       Without this, every call overwrites offset 0 and all-but-last draws are
+       silently corrupted (the GPU reads stale data). */
+    size_t byte_off  = (size_t)gui->batch_floats * sizeof(float);
+    size_t byte_size = (size_t)(vertex_count * 2) * sizeof(float);
+    if (byte_off + byte_size > GUI_VBO_BYTES) return; /* overflow guard */
 
-static void gui_draw_lines(Gui *gui, const float *verts, int vertex_count, float r, float g, float b, float a) {
     gui_set_color(gui, r, g, b, a);
     renderer_bind_vao(gui->vao);
     renderer_bind_buffer(R_BUF_ARRAY, gui->vbo);
-    renderer_buffer_data(R_BUF_ARRAY, (size_t)vertex_count * 2 * sizeof(float), verts, R_USAGE_DYNAMIC);
-    renderer_draw_arrays(R_PRIM_LINES, 0, vertex_count);
+    renderer_buffer_sub_data(R_BUF_ARRAY, byte_off, byte_size, verts);
+    renderer_draw_arrays(R_PRIM_TRIANGLES, gui->batch_floats / 2, vertex_count);
+    gui->batch_floats += vertex_count * 2;
 }
 
 static void gui_fill_rect(Gui *gui, float x, float y, float w, float h, float r, float g, float b, float a) {
@@ -49,17 +49,11 @@ static void gui_fill_rect(Gui *gui, float x, float y, float w, float h, float r,
 }
 
 static void gui_border_rect(Gui *gui, float x, float y, float w, float h, float r, float g, float b, float a) {
-    float x0 = gui_ndc_x(gui, x);
-    float y0 = gui_ndc_y(gui, y);
-    float x1 = gui_ndc_x(gui, x + w);
-    float y1 = gui_ndc_y(gui, y + h);
-    float verts[] = {
-        x0, y0,  x1, y0,
-        x1, y0,  x1, y1,
-        x1, y1,  x0, y1,
-        x0, y1,  x0, y0,
-    };
-    gui_draw_lines(gui, verts, 8, r, g, b, a);
+    float t = 2.0f;
+    gui_fill_rect(gui, x,       y,       w,       t,       r, g, b, a); /* top    */
+    gui_fill_rect(gui, x,       y+h-t,   w,       t,       r, g, b, a); /* bottom */
+    gui_fill_rect(gui, x,       y+t,     t,       h-2*t,   r, g, b, a); /* left   */
+    gui_fill_rect(gui, x+w-t,   y+t,     t,       h-2*t,   r, g, b, a); /* right  */
 }
 
 static bool gui_point_in_rect(const Gui *gui, float x, float y, float w, float h) {
@@ -83,8 +77,20 @@ static unsigned char font_row(char c, int row) {
         {'X', 17,17,10,4,10,17,17}, {'Y', 17,17,10,4,4,4,4}, {'Z', 31,1,2,4,8,16,31},
         {'-', 0,0,0,31,0,0,0}, {'.', 0,0,0,0,0,12,12}, {':', 0,12,12,0,12,12,0},
         {'/', 1,1,2,4,8,16,16}, {'_', 0,0,0,0,0,0,31},
+        {'a', 0,0,14,1,15,17,15}, {'b', 16,16,30,17,17,17,30},
+        {'c', 0,0,14,16,16,16,14}, {'d', 1,1,15,17,17,17,15},
+        {'e', 0,0,14,17,31,16,14}, {'f', 0,6,8,30,8,8,8},
+        {'g', 0,14,17,17,15,1,14}, {'h', 16,16,30,17,17,17,17},
+        {'i', 0,4,0,4,4,4,14},    {'j', 0,2,0,2,2,18,12},
+        {'k', 16,16,18,20,24,20,18}, {'l', 12,4,4,4,4,4,14},
+        {'m', 0,0,27,21,21,21,21}, {'n', 0,0,30,17,17,17,17},
+        {'o', 0,0,14,17,17,17,14}, {'p', 0,0,30,17,17,30,16},
+        {'q', 0,0,15,17,17,15,1},  {'r', 0,0,22,24,16,16,16},
+        {'s', 0,0,14,16,14,1,14},  {'t', 0,4,4,30,4,4,4},
+        {'u', 0,0,17,17,17,17,14}, {'v', 0,0,17,17,17,10,4},
+        {'w', 0,0,17,17,21,21,10}, {'x', 0,0,17,10,4,10,17},
+        {'y', 0,0,17,17,15,1,14},  {'z', 0,0,31,2,4,8,31},
     };
-    if (c >= 'a' && c <= 'z') c = (char)toupper((unsigned char)c);
     if (c == ' ') return blank[row];
     for (size_t i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); i++) {
         if (glyphs[i][0] == (unsigned char)c) return glyphs[i][row + 1];
@@ -99,9 +105,14 @@ void gui_init(Gui *gui, R_Program program) {
     gui->vbo = renderer_create_buffer();
     renderer_bind_vao(gui->vao);
     renderer_bind_buffer(R_BUF_ARRAY, gui->vbo);
+    renderer_buffer_data(R_BUF_ARRAY, GUI_VBO_BYTES, NULL, R_USAGE_DYNAMIC);
     renderer_attrib_pointer(0, 2, R_TYPE_FLOAT, false, 2 * sizeof(float), 0);
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
+}
+
+void gui_rect(Gui *gui, float x, float y, float w, float h, float r, float g, float b) {
+    gui_fill_rect(gui, x, y, w, h, r, g, b, 1.0f);
 }
 
 void gui_shutdown(Gui *gui) {
@@ -119,6 +130,7 @@ void gui_begin_frame(Gui *gui, int width, int height, int mouse_x, int mouse_y, 
     gui->mouse_y = (float)mouse_y;
     gui->mouse_down = mouse_down;
     gui->mouse_pressed = mouse_down && !was_down;
+    gui->batch_floats = 0; /* rewind the VBO linear allocator each frame */
 }
 
 void gui_write_text(Gui *gui, float x, float y, const char *text, float scale, float r, float g, float b) {
@@ -140,6 +152,11 @@ void gui_write_text(Gui *gui, float x, float y, const char *text, float scale, f
         }
         x += (GUI_FONT_W + 1) * scale;
     }
+}
+
+float gui_text_width(const char *text, float scale) {
+    int n = text ? (int)strlen(text) : 0;
+    return n > 0 ? (float)(n * (GUI_FONT_W + 1) - 1) * scale : 0.0f;
 }
 
 bool gui_create_button(Gui *gui, float x, float y, float w, float h, const char *text, GuiCallback callback, void *userdata) {
