@@ -1,54 +1,54 @@
-# Kyub - Minimalist Voxel Engine
+# Kyub
 
-C99 voxel engine with Vulkan + OpenGL backends.
+C99 voxel game. Vulkan renderer via [Kiln](https://github.com/zexk/kiln).
 
-## Building
+Chunk-based world with greedy meshing, ambient occlusion, biome terrain, cave carving, sea-level water, and LOD (3 levels). Chunks persist to disk in a compact binary format.
 
-```bash
-nix develop          # Enter dev shell
-make                 # Debug build (Vulkan)
-make RENDERER=opengl # Debug build (OpenGL)
-make release         # Optimized build
+## Build
+
+```sh
+nix develop
+cmake -B build -G Ninja && ninja -C build
 ```
 
-### Run
+Without Nix (Linux, X11, Vulkan SDK required):
 
-```bash
-KYUB_LOG=debug ./build/kyub  # With debug logging
-./build/kyub                 # Normal
+```sh
+cmake -B build -G Ninja -DKILN_DIR=/path/to/kiln
+ninja -C build
+```
+
+`KILN_DIR` defaults to `extern/kiln` (the git submodule).
+
+## Run
+
+```sh
+./build/kyub
+KILN_LOG=debug ./build/kyub   # with logging
 ```
 
 ## Controls
 
 | Key | Action |
 |-----|--------|
-| W/A/S/D | Move |
+| WASD | Move |
 | Space | Jump |
-| Shift | Sprint |
 | Mouse | Look |
-| Left Click | Break block |
-| Right Click | Place block |
-| Mousewheel | Cycle block type |
-| T / Escape | Toggle pause/exit |
-| P | (removed, Nuklear GUI deleted) |
+| Left click | Break block |
+| Right click | Place block |
+| Scroll | Cycle block type |
+| Escape | Pause / exit |
 
-## Architecture
-
-- **Renderer** (`src/renderer/`) - Vulkan + OpenGL 4.5 fallback (DSA)
-- **ECS** (`src/ecs.c`) - Flat-array entity-component system
-- **World** (`src/world.c`) - Chunk-based terrain with persistence
-- **Mesh** (`src/mesh.c`) - Greedy meshing with ambient occlusion
-- **Texture array** (`GL_TEXTURE_2D_ARRAY`) - 16x16 per-block PNGs, per-face layers
-- **Noise** (`src/noise.c`) - Perlin noise terrain generation
-- **Hotbar** - 7-slot block selector at bottom of screen
-
-## Project Structure
+## Structure
 
 ```
-src/          - Engine source
-include/      - Headers
-shaders/      - GLSL (.gl.vert/.gl.frag for OpenGL)
-assets/       - Block textures (assets/textures/*.png)
-saves/        - World saves (gitignored)
-build/        - Compiled output
+src/          game source (mesh, world, voxel, ECS components, GUI, systems)
+shaders/      GLSL sources, compiled to SPIR-V at build time
+assets/       block textures (16x16 PNG per face)
+saves/        world saves (gitignored)
+extern/kiln/  Kiln engine (git submodule)
 ```
+
+## License
+
+MIT.
