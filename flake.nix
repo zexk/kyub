@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    kiln.url = "git+file:///home/zexk/repos/kiln";
+    kiln.url = "github:zexk/kiln";
   };
 
   outputs = { self, nixpkgs, flake-utils, kiln }:
@@ -36,7 +36,7 @@
           ];
           shellHook = ''
             export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
-            echo "Kyub dev shell — cmake -B build -G Ninja -DKILN_DIR=${kiln} && cmake --build build"
+            echo "Kyub dev shell: cmake -B build -G Ninja -DKILN_DIR=${kiln} && cmake --build build"
           '';
         };
       });

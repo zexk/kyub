@@ -42,17 +42,17 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1782160916,
-        "narHash": "sha256-1Zypu+McFpctnuJgIeXRH1To07a6UNVax392CqBMtIQ=",
-        "ref": "refs/heads/master",
-        "rev": "716e42d8b7f0f973b636825da8ea484315098cc2",
-        "revCount": 96,
-        "type": "git",
-        "url": "file:///home/zexk/repos/kiln"
+        "lastModified": 1782165277,
+        "narHash": "sha256-ZxaZ93tOC4ziPoVoLM58GH9tc1HAXA7IVM00f6TqHSw=",
+        "owner": "zexk",
+        "repo": "kiln",
+        "rev": "2760551c43c895a602ac00e4a6cf0d1a015da44f",
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "file:///home/zexk/repos/kiln"
+        "owner": "zexk",
+        "repo": "kiln",
+        "type": "github"
       }
     },
     "nixpkgs": {
