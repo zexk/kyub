@@ -272,10 +272,16 @@ int main(void) {
     int spawn_z = (int)floorf(player_pos.z);
     int ground_y = 0;
     for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
-        if (world_is_solid(&world, spawn_x, y, spawn_z)) { ground_y = y; break; }
+        BlockType by = world_get_block(&world, spawn_x, y, spawn_z);
+        if (by != BLOCK_AIR && by != BLOCK_WATER) { ground_y = y; break; }
     }
-    if (player_transform)
-        player_transform->position.y = (float)(ground_y + 2) + PLAYER_EYES_HEIGHT;
+    if (player_transform) {
+        vec3 spawn_pos = { player_pos.x, (float)(ground_y + 2) + PLAYER_EYES_HEIGHT, player_pos.z };
+        /* Nudge up if inside a solid block (e.g. cave ceiling or overhang). */
+        while (!position_is_safe(&world, spawn_pos) && spawn_pos.y < (float)(CHUNK_SIZE * 2))
+            spawn_pos.y += 1.0f;
+        player_transform->position = spawn_pos;
+    }
     LOG_INFO(CAT_PLATFORM, "Spawn at y=%.2f (ground at y=%d)",
              player_transform ? player_transform->position.y : 20.0f, ground_y);
 
