@@ -84,10 +84,14 @@ void chunk_init(Chunk *chunk, int x, int z) {
         }
     }
 
-    /* ── cave carving (skip y=0 floor and top 3 rows to protect surface) ── */
+    /* ── cave carving: protect 2 blocks below each column's surface ──────── */
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 1; y < CHUNK_SIZE - 3; y++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int surface = 0;
+            for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
+                if (chunk->blocks[lx][y][lz] != BLOCK_AIR) { surface = y; break; }
+            }
+            for (int y = 1; y < surface - 1; y++) {
                 if (chunk->blocks[lx][y][lz] == BLOCK_AIR) continue;
                 float wx = (float)(x * CHUNK_SIZE + lx);
                 float wz = (float)(z * CHUNK_SIZE + lz);
