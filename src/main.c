@@ -8,13 +8,14 @@
 #include "game_input.h"
 #include "fps_camera.h"
 #include "ui.h"
+#include "ui_gl.h"
+#include "physics.h"
 #include "voxel.h"
 #include "mesh.h"
 #include "world.h"
 #include "texture.h"
 #include "components.h"
 #include "systems.h"
-#include "gui.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,50 +32,9 @@
 
 typedef enum { PAUSE_MAIN = 0, PAUSE_OPTIONS } PauseScreen;
 
-/* ── Game-side ui_draw_t: routes to gui.c's renderer.h primitives ─────────── */
-
-static void game_ui_rect(void *ud, float x, float y, float w, float h,
-                          float r, float g, float b) {
-    gui_rect((Gui *)ud, x, y, w, h, r, g, b);
-}
-static void game_ui_text(void *ud, float x, float y, float scale,
-                          float r, float g, float b, const char *s) {
-    gui_write_text((Gui *)ud, x, y, s, scale, r, g, b);
-}
-
-static void quit_button_callback(void *userdata) {
-    bool *running = userdata;
-    if (running) *running = false;
-}
-
-static bool raycast_find_solid(World *world, vec3 pos, vec3 dir, float max_dist, float step, BlockPos *out) {
-    for (float t = 0; t < max_dist; t += step) {
-        vec3 p = vec3_add(pos, vec3_scale(dir, t));
-        int bx = (int)floorf(p.x), by = (int)floorf(p.y), bz = (int)floorf(p.z);
-        if (world_get_block(world, bx, by, bz) != BLOCK_AIR) {
-            out->x = bx; out->y = by; out->z = bz;
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool raycast_find_solid_with_prev(World *world, vec3 pos, vec3 dir, float max_dist, float step,
-                                         BlockPos *out, BlockPos *prev_out) {
-    BlockPos prev = {0};
-    bool has_prev = false;
-    for (float t = 0; t < max_dist; t += step) {
-        vec3 p = vec3_add(pos, vec3_scale(dir, t));
-        int bx = (int)floorf(p.x), by = (int)floorf(p.y), bz = (int)floorf(p.z);
-        if (world_get_block(world, bx, by, bz) != BLOCK_AIR) {
-            if (out)      { out->x = bx; out->y = by; out->z = bz; }
-            if (prev_out) { *prev_out = prev; }
-            return has_prev;
-        }
-        prev.x = bx; prev.y = by; prev.z = bz;
-        has_prev = true;
-    }
-    return false;
+/* "Solid" predicate for block picking: any non-air voxel blocks the ray. */
+static bool ray_solid_cb(void *ctx, int x, int y, int z) {
+    return world_get_block((World *)ctx, x, y, z) != BLOCK_AIR;
 }
 
 int main(void) {
@@ -132,7 +92,7 @@ int main(void) {
         }
     }
 
-    R_Texture tex_array = texture_load_array(tex_paths, tex_path_count, 16, 16);
+    R_Texture tex_array = texture_array_load_paths(tex_paths, tex_path_count, 16, 16);
     if (tex_array == R_INVALID_HANDLE) { fprintf(stderr, "Failed to load block textures\n"); return 1; }
 
     /* Resolve layer indices */
@@ -241,12 +201,12 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    Gui gui;
-    gui_init(&gui, hud_program);
+    ui_gl_t gui;
+    if (!ui_gl_init(&gui)) { fprintf(stderr, "Failed to init UI renderer\n"); return 1; }
 
     ui_t debug_ui;
     ui_init(&debug_ui);
-    const ui_draw_t game_draw = {game_ui_rect, game_ui_text, &gui};
+    const ui_draw_t game_draw = ui_gl_draw(&gui);
 
     World world;
     world_init(&world, 6);
@@ -331,6 +291,12 @@ int main(void) {
                     }
                 }
                 if (event.key.keysym == 0xFFC0) /* F3 */ show_debug = !show_debug;
+                if (event.key.keysym == 0xFFBF) { /* F2: save a PPM screenshot */
+                    static int shot_n = 0;
+                    char path[64];
+                    snprintf(path, sizeof(path), "kyub_screenshot_%d.ppm", shot_n++);
+                    //renderer_save_screenshot(path);
+                }
                 break;
             case EVENT_SCROLL:
                 if (!paused && event.scroll.delta != 0.0f) {
@@ -353,9 +319,9 @@ int main(void) {
             }
         }
 
-        gui_begin_frame(&gui, (int)win_width, (int)win_height,
-                        (int)game_input.mouse_x, (int)game_input.mouse_y,
-                        game_input.mouse_left);
+        ui_gl_begin(&gui, (int)win_width, (int)win_height,
+                    (int)game_input.mouse_x, (int)game_input.mouse_y,
+                    game_input.mouse_left);
 
         if (paused) {
             sys_movement(g_ecs, &world, 0.0f);
@@ -403,14 +369,17 @@ int main(void) {
 
         if (!paused) {
             if (game_input.mouse_left && break_cooldown <= 0.0f) {
-                BlockPos hit;
-                if (raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit))
-                    world_set_block(&world, hit.x, hit.y, hit.z, BLOCK_AIR);
+                phys_raycast_hit_t h = phys_raycast_voxel(cam_pos, camera.front,
+                                                          RAYCAST_MAX_DISTANCE, ray_solid_cb, &world);
+                if (h.hit)
+                    world_set_block(&world, h.x, h.y, h.z, BLOCK_AIR);
                 break_cooldown = COOLDOWN_TIME;
             }
             if (game_input.mouse_right && place_cooldown <= 0.0f) {
-                BlockPos hit, prev;
-                if (raycast_find_solid_with_prev(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hit, &prev)) {
+                phys_raycast_hit_t h = phys_raycast_voxel(cam_pos, camera.front,
+                                                          RAYCAST_MAX_DISTANCE, ray_solid_cb, &world);
+                if (h.hit) {
+                    BlockPos prev = {.x = h.x + h.nx, .y = h.y + h.ny, .z = h.z + h.nz};
                     if (world_get_block(&world, prev.x, prev.y, prev.z) == BLOCK_AIR)
                         if (!player_collides_with_block(&world, cam_pos, prev))
                             world_set_block(&world, prev.x, prev.y, prev.z, selected_block);
@@ -419,7 +388,10 @@ int main(void) {
             }
         }
 
-        BlockPos hl; bool hl_found = raycast_find_solid(&world, cam_pos, camera.front, RAYCAST_MAX_DISTANCE, RAYCAST_STEP, &hl);
+        phys_raycast_hit_t hl_hit = phys_raycast_voxel(cam_pos, camera.front,
+                                                       RAYCAST_MAX_DISTANCE, ray_solid_cb, &world);
+        BlockPos hl = {.x = hl_hit.x, .y = hl_hit.y, .z = hl_hit.z};
+        bool hl_found = hl_hit.hit;
 
         renderer_enable(R_CAP_DEPTH_TEST);
         renderer_enable(R_CAP_CULL_FACE);
@@ -550,26 +522,26 @@ int main(void) {
                 float by = cy - total_h * 0.5f;
 
                 float title_scale = 4.0f;
-                float tw = gui_text_width("PAUSED", title_scale);
+                float tw = ui_gl_text_width("PAUSED", title_scale);
                 float th = 7.0f * title_scale; /* font height */
-                gui_write_text(&gui, cx - tw * 0.5f, by - th - 18.0f,
-                               "PAUSED", title_scale, 0.95f, 0.95f, 0.95f);
+                ui_gl_text(&gui, cx - tw * 0.5f, by - th - 18.0f,
+                           "PAUSED", title_scale, 0.95f, 0.95f, 0.95f);
 
-                if (gui_create_button(&gui, bx, by, BTN_W, BTN_H, "resume", NULL, NULL)) {
+                if (ui_gl_button(&gui, bx, by, BTN_W, BTN_H, "resume")) {
                     paused = false;
                     pause_screen = PAUSE_MAIN;
                     window_set_cursor_mode(win, CURSOR_DISABLED);
                 }
                 by += BTN_H + BTN_GAP;
-                if (gui_create_button(&gui, bx, by, BTN_W, BTN_H, "options", NULL, NULL))
+                if (ui_gl_button(&gui, bx, by, BTN_W, BTN_H, "options"))
                     pause_screen = PAUSE_OPTIONS;
                 by += BTN_H + BTN_GAP;
-                gui_create_button(&gui, bx, by, BTN_W, BTN_H, "quit game",
-                                  quit_button_callback, &running);
+                if (ui_gl_button(&gui, bx, by, BTN_W, BTN_H, "quit game"))
+                    running = false;
 
             } else { /* PAUSE_OPTIONS */
                 float title_scale = 4.0f;
-                float tw = gui_text_width("OPTIONS", title_scale);
+                float tw = ui_gl_text_width("OPTIONS", title_scale);
                 float th = 7.0f * title_scale;
 
                 /* Options panel via the debug_ui system */
@@ -577,8 +549,8 @@ int main(void) {
                 float panel_x = cx - panel_w * 0.5f;
                 float panel_y = cy - 130.0f;
 
-                gui_write_text(&gui, cx - tw * 0.5f, panel_y - th - 12.0f,
-                               "OPTIONS", title_scale, 0.95f, 0.95f, 0.95f);
+                ui_gl_text(&gui, cx - tw * 0.5f, panel_y - th - 12.0f,
+                           "OPTIONS", title_scale, 0.95f, 0.95f, 0.95f);
 
                 ui_input_t ui_in = {
                     .mouse_x      = game_input.mouse_x,
@@ -597,8 +569,8 @@ int main(void) {
                 world.render_distance = render_distance;
 
                 float back_w = 140.0f;
-                if (gui_create_button(&gui, cx - back_w * 0.5f, panel_y + 200.0f,
-                                      back_w, BTN_H, "back", NULL, NULL))
+                if (ui_gl_button(&gui, cx - back_w * 0.5f, panel_y + 200.0f,
+                                 back_w, BTN_H, "back"))
                     pause_screen = PAUSE_MAIN;
             }
 #undef BTN_W
@@ -657,7 +629,7 @@ int main(void) {
     renderer_destroy_vao(overlay_vao);  renderer_destroy_buffer(overlay_vbo);
     renderer_destroy_vao(hud_vao);      renderer_destroy_buffer(hud_vbo);
     renderer_destroy_vao(hotbar_vao);   renderer_destroy_buffer(hotbar_vbo);
-    gui_shutdown(&gui);
+    ui_gl_shutdown(&gui);
     renderer_destroy_texture(tex_array);
     renderer_shutdown();
     world_destroy(g_ecs);

@@ -1,113 +1,117 @@
-# AGENTS.md - Kyub Voxel Engine
+# AGENTS.md
 
-## Build Commands
+Agent context for the Kyub voxel game.
 
-```bash
-# Enter development shell (required for building)
-nix develop
+Kyub is a C99 voxel game built on the [Kiln](https://github.com/zexk/kiln) engine.
+It uses Kiln's low-level Vulkan renderer (`kiln_renderer`, the `r_*.c` wrappers),
+Kiln's archetype ECS, platform layer (X11 / Win32), camera, physics, and UI.
+Kiln is consumed as an external dependency — there is no vendored copy.
 
-# Build inside dev shell (Vulkan is default)
-make
+## Build
 
-# Build with OpenGL fallback
-make RENDERER=opengl
-
-# Or build directly with Nix
-nix build
+```sh
+nix develop                 # dev shell: cmake, ninja, glslc, Vulkan, mingw cross
+cmake -B build -G Ninja     # KILN_DIR is injected from the flake input
+ninja -C build              # binary at ./build/kyub
 ```
 
-The binary is at `./build/kyub`.
+`KILN_DIR` must point at a Kiln checkout. The flake passes
+`-DKILN_DIR=${kiln}` automatically; the dev shell prints the exact command.
+Non-Nix users clone Kiln separately and set `-DKILN_DIR=/path/to/kiln` (or the
+`KILN_DIR` environment variable) — CMake errors with instructions if it's unset.
 
-## Project Structure
+Via Nix directly:
 
-- `src/` - Main engine (main.c, renderer_vulkan.c/renderer_gl.c, voxel.c, mesh.c, world.c, etc.)
-- `include/` - Headers
-- `shaders/` - GLSL sources (separate .vert/.frag for Vulkan, .gl.vert/.gl.frag for OpenGL)
-- `assets/` - Textures (`assets/textures/*.png`)
+```sh
+nix build            # native Linux/x86_64
+nix build .#win32    # Windows cross-build (mingwW64), runnable under Wine
+```
 
-## Renderer Backends
+## Run
 
-- **Vulkan** (default): `RENDERER=vulkan` - Modern, primary backend
-- **OpenGL** (fallback): `RENDERER=opengl` - Legacy compatibility
-
-## Development Conventions
-
-- **C99 only**: Use `-std=c99` flag
-- **Manual memory management**: Always call `mesh_free()` and `world_free()` after use
-- **Separate shader files**: Vulkan uses `.vert`/`.frag`, OpenGL uses `.gl.vert`/`.gl.frag`
-
-## Key Files
-
-- `src/renderer/renderer_gl.c` - OpenGL rendering backend (fallback)
-- `src/renderer/renderer_vulkan.c` - Vulkan rendering backend (default)
-- `src/platform/platform_x11.c` - X11 platform layer
-- `src/world.c` - Chunk/voxel world management
-- `src/voxel.c` - Voxel data structures
-- `src/mesh.c` - Mesh generation and management
-- `src/ecs.c` - Entity Component System core
-- `src/components.c` - Game component definitions
-- `src/systems.c` - ECS systems (movement, etc.)
-- `src/math3d.c` - Math utilities (mat4, vec3, frustum)
-
-## Texture System
-
-- **GL_TEXTURE_2D_ARRAY**: All block textures loaded into a single texture array (16×16 per texture)
-- **Per-face layers**: Each block face (top/bottom/side) can use a different texture layer
-- **Path deduplication**: Unique texture paths are collected at init, each gets one array layer
-- **Texture location**: `assets/textures/*.png` (e.g., `dirt.png`, `grass_top.png`, `grass_side.png`)
-- **Fallback**: Missing textures log a warning and render as black for that face
-
-## World Persistence
-
-- **Save location**: local saves are written under `saves/default/` and ignored by git
-- **Chunk files**: one versioned file per chunk (`chunk_X_Z.kch`)
-- **Compatibility**: chunk data uses a stable string block-ID palette (`kyub:stone`, etc.), not raw enum meanings
-- **Format**: fixed magic/version header plus typed sections; unknown future sections can be skipped
-- **Flush policy**: edited chunks save periodically, on unload, and during shutdown
-
-## ECS Architecture
-
-- Entity = `uint32_t` index into flat arrays
-- Component pools = flat arrays indexed by entity ID (sparse, not packed)
-- Up to 32 component types, 4096 max entities
-- Global `ECS g_ecs` declared in `components.h`
-- Block types are entities with `C_BlockDef` components
-
-## Critical Bugs & Fixes
-
-### Skybox Rendering
-- **Problem**: Cube-based skybox caused black triangles (w-clipping) and seam discoloration at cube edges
-- **Fix**: Fullscreen triangle approach with per-pixel ray reconstruction via inverse projection/view matrices
-- **Shader**: `shaders/skybox.gl.vert` now uses `inv_projection` and `inv_view_rotation` uniforms
-- **Geometry**: Single triangle covering NDC `{-1,-1}, {3,-1}, {-1,3}` instead of 36-vertex cube
-
-### OpenGL Resource Leak
-- **Problem**: VAO/buffer/texture handles only incremented, never reused; exhausted after 256 allocations causing invisible chunks
-- **Fix**: Free lists (`g_vao_free_list[]`, `g_buffer_free_list[]`, `g_texture_free_list[]`) in create/destroy functions
-
-### Stride=0 Bug
-- **Problem**: `glVertexArrayVertexBuffer` with stride=0 is a no-op (doesn't bind buffer per GL 4.5 spec)
-- **Fix**: All `renderer_attrib_pointer` calls use actual strides (12 for 3-float, 8 for 2-float)
-- **Affected**: Skybox and outline VAOs
-
-### Buffer Upload
-- **Problem**: `mesh_upload()` used `renderer_buffer_sub_data()` on fresh VBOs with zero storage
-- **Fix**: Use `renderer_buffer_data()` which allocates storage + uploads atomically
-
-### UI State Corruption
-- **Problem**: `renderer_push_attrib`/`renderer_pop_attrib` are no-ops in GL backend; UI rendering disabled depth/cull, enabled blend
-- **Fix**: Explicit state restoration at frame start (enable depth_test, enable cull_face, disable blend)
-
-### Transparent Window
-- **Fix**: `GLX_ALPHA_SIZE = 0` in `platform_x11.c`; `_NET_WM_WINDOW_OPACITY` set before `XMapWindow`; `CWBackPixel` to black
-
-### Mesa RADV Crash
-- **GPU**: AMD RX 9060 XT (GFX1200 RDNA4)
-- **Driver**: Mesa 26.0.6 crashes with SIGSEGV in `libvulkan_radeon.so` at `vkCreateGraphicsPipelines`
-- **Workaround**: Use OpenGL backend (`make RENDERER=opengl`)
-
-## Running
-
-```bash
+```sh
 ./build/kyub
+KILN_LOG=DEBUG ./build/kyub   # log levels: DEBUG | INFO | WARN | ERROR
 ```
+
+## Controls
+
+| Input | Action |
+|-------|--------|
+| WASD | Move |
+| Shift | Sprint |
+| Space | Jump |
+| Mouse | Look |
+| Left click | Break block |
+| Right click | Place block |
+| Scroll | Cycle hotbar block |
+| Esc / T | Pause menu (toggles cursor) |
+| F3 | Debug overlay (fps, pos, chunk count) |
+
+## Layout
+
+```
+src/         game code
+shaders/     GLSL sources, compiled to SPIR-V via glslc at build time
+assets/      block textures (16x16 RGBA PNG, one per face)
+saves/       world saves (gitignored)
+```
+
+Headers live next to their `.c`; several are thin shims onto Kiln APIs
+(`math3d.h` → `linalg.h`/`frustum.h`, `logger.h` → `log.h`,
+`game_input.h` → `input.h`).
+
+| File | Responsibility |
+|------|----------------|
+| `src/main.c` | entry point, game loop, input, rendering, HUD/pause UI |
+| `src/voxel.c` | chunk terrain generation (biomes, caves, sea-level water) |
+| `src/world.c` | chunk streaming, load/unload, dirty re-mesh, disk persistence |
+| `src/mesh.c` | per-chunk mesh generation (face culling + AO, 3 LOD levels) |
+| `src/components.c` | ECS component registration, block-type registry |
+| `src/systems.c` | ECS systems (`sys_movement`: integrate + resolve collisions) |
+
+Block textures, HUD primitives, and block picking come from Kiln, not local
+code: `kiln_texture` (deduplicating texture-array loader, `texture_array_*`),
+`kiln_ui_gl` (renderer-backed rects/text/buttons + a `ui_draw_t` for kiln_ui's
+panels), and `phys_raycast_voxel` (DDA block raycast in `kiln_physics`).
+
+## Renderer
+
+Kyub links `kiln_renderer` — Kiln's **low-level** abstract renderer (programs,
+buffers, VAOs, textures), not the high-level scene renderer (`kiln_render`).
+Shaders: `basic` (chunks), `hud`, `skybox` (fullscreen-triangle), `outline`
+(block highlight). Add a new shader by extending the `foreach` list in
+`CMakeLists.txt`.
+
+`renderer_save_screenshot(path)` writes the next presented frame to a binary
+PPM — useful for visual verification.
+
+## Voxels
+
+- `Chunk`: `uint8_t blocks[16][16][16]` (single vertical layer, world is 16 tall),
+  indexed `[x][y][z]`. `BlockType` enum in `voxel.h`.
+- Block types are ECS entities carrying a `C_BlockDef` (id, textures per face,
+  solid/opaque/hardness). `g_block_entities[BlockType]` maps enum → entity.
+- Meshing: each chunk holds 3 LOD meshes (steps 1/2/4); the draw loop picks one
+  by distance and frustum-culls via the chunk AABB. Per-face culling, not greedy
+  merging.
+
+## Textures
+
+All block textures load into one Vulkan texture array (16x16 per layer). Unique
+texture paths are deduplicated into array layers at startup; each `C_BlockDef`
+resolves `layer_top/bottom/side/default`. A face samples its layer via the
+`texture_layer` vertex attribute.
+
+## World persistence
+
+Chunks save under `saves/default/` as one versioned binary file per chunk
+(`chunk_X_Z.kch`), using a stable string block-ID palette (`kyub:stone`, …) so
+the enum can change without breaking saves. Edited chunks flush periodically, on
+unload, and at shutdown.
+
+## Conventions
+
+- C99, manual memory management — pair `mesh_init`/`mesh_free`, `world_init`/`world_free`.
+- Coordinates: `world_*` take world-space block coords; chunk-local indexing is
+  `[x][y][z]`.

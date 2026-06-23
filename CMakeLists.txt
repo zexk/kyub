@@ -10,10 +10,17 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # ── Kiln engine ──────────────────────────────────────────────────────────────
-# KILN_DIR can be set externally (e.g. -DKILN_DIR=/nix/store/...) when kiln is
-# provided as a flake input.  Falls back to the git submodule for local builds.
+# Kiln is an external build dependency. The flake passes -DKILN_DIR=${kiln}.
+# Non-Nix users clone kiln (https://github.com/zexk/kiln) and point KILN_DIR at
+# it, either with -DKILN_DIR=/path/to/kiln or via the KILN_DIR environment var.
+if(NOT DEFINED KILN_DIR AND DEFINED ENV{KILN_DIR})
+  set(KILN_DIR "$ENV{KILN_DIR}")
+endif()
 if(NOT DEFINED KILN_DIR)
-  set(KILN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/kiln")
+  message(FATAL_ERROR
+    "KILN_DIR is not set. Clone kiln from https://github.com/zexk/kiln and "
+    "configure with -DKILN_DIR=/path/to/kiln (Nix users get this automatically "
+    "via the flake input).")
 endif()
 add_subdirectory(${KILN_DIR} ${CMAKE_CURRENT_BINARY_DIR}/kiln)
 
@@ -46,8 +53,6 @@ add_executable(kyub
     src/mesh.c
     src/components.c
     src/world.c
-    src/texture.c
-    src/gui.c
     src/systems.c)
 
 add_dependencies(kyub kyub_shaders)
@@ -63,6 +68,7 @@ target_include_directories(kyub PRIVATE
     ${KILN_DIR}/src/platform
     ${KILN_DIR}/src/render
     ${KILN_DIR}/src/ui
+    ${KILN_DIR}/src/texture
     ${KILN_DIR}/src/ecs
     ${KILN_DIR}/src/camera
     ${KILN_DIR}/src/physics)
@@ -74,4 +80,6 @@ target_link_libraries(kyub PRIVATE
     kiln_platform
     kiln_physics
     kiln_core
-    kiln_ui)
+    kiln_ui
+    kiln_ui_gl
+    kiln_texture)

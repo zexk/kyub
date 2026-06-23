@@ -18,7 +18,9 @@ cmake -B build -G Ninja -DKILN_DIR=/path/to/kiln
 ninja -C build
 ```
 
-`KILN_DIR` defaults to `extern/kiln` (the git submodule).
+Clone [kiln](https://github.com/zexk/kiln) separately and point `KILN_DIR` at it
+(via `-DKILN_DIR=...` or the `KILN_DIR` environment variable). Nix users get it
+automatically from the flake input.
 
 ## Run
 
@@ -46,7 +48,6 @@ src/          game source (mesh, world, voxel, ECS components, GUI, systems)
 shaders/      GLSL sources, compiled to SPIR-V at build time
 assets/       block textures (16x16 PNG per face)
 saves/        world saves (gitignored)
-extern/kiln/  Kiln engine (git submodule)
 ```
 
 ## License

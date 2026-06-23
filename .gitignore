@@ -1,9 +1,9 @@
 # Build outputs
 build/
-result
 
 # Nix
 result
+result-win32
 *.drv
 
 # Direnv
