@@ -57,31 +57,28 @@ assets/      block textures (16x16 RGBA PNG, one per face)
 saves/       world saves (gitignored)
 ```
 
-Headers live next to their `.c`; several are thin shims onto Kiln APIs
-(`math3d.h` → `linalg.h`/`frustum.h`, `logger.h` → `log.h`,
-`game_input.h` → `input.h`).
+Headers live next to their `.c`.
 
 | File | Responsibility |
 |------|----------------|
 | `src/main.c` | entry point, game loop, input, rendering, HUD/pause UI |
 | `src/voxel.c` | chunk terrain generation (biomes, caves, sea-level water) |
-| `src/world.c` | chunk streaming, load/unload, dirty re-mesh, disk persistence |
-| `src/mesh.c` | per-chunk mesh generation (face culling + AO, 3 LOD levels) |
+| `src/inventory.c` | hotbar + inventory UI, slot management |
 | `src/components.c` | ECS component registration, block-type registry |
 | `src/systems.c` | ECS systems (`sys_movement`: integrate + resolve collisions) |
 
 Block textures, HUD primitives, and block picking come from Kiln, not local
 code: `kiln_texture` (deduplicating texture-array loader, `texture_array_*`),
-`kiln_ui_gl` (renderer-backed rects/text/buttons + a `ui_draw_t` for kiln_ui's
-panels), and `phys_raycast_voxel` (DDA block raycast in `kiln_physics`).
+`kiln_ui` (rects/text/buttons via `ui_gl_t`), and `phys_raycast_voxel`
+(DDA block raycast in `kiln_physics`).
 
 ## Renderer
 
-Kyub links `kiln_renderer` — Kiln's **low-level** abstract renderer (programs,
-buffers, VAOs, textures), not the high-level scene renderer (`kiln_render`).
-Shaders: `basic` (chunks), `hud`, `skybox` (fullscreen-triangle), `outline`
-(block highlight). Add a new shader by extending the `foreach` list in
-`CMakeLists.txt`.
+Kyub links `kiln_renderer` — Kiln's **low-level** Vulkan renderer, not the
+high-level scene renderer (`kiln_render`).
+Shaders: `hud`, `skybox` (fullscreen-triangle), `outline` (block highlight),
+`inv` (inventory overlay); chunk geometry uses kiln_voxel's own `voxel.vert/frag`.
+Add a new shader by extending the `foreach` list in `CMakeLists.txt`.
 
 `renderer_save_screenshot(path)` writes the next presented frame to a binary
 PPM — useful for visual verification.
