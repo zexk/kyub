@@ -282,17 +282,6 @@ int main(void) {
             }
         }
 
-        /* ── Win32 KB diag: inject keysym-'w' each frame to test movement
-               pipeline independent of X11 keyboard focus.  Remove when fixed. */
-#ifdef _WIN32
-        {
-            event_t sim = {0};
-            sim.type       = EVENT_KEY_DOWN;
-            sim.key.keysym = 'w'; /* 0x77 = XK_w & 0xff */
-            game_input_handle_event(&game_input, &sim);
-        }
-#endif
-
         hud_begin(&gui,(int)win_width,(int)win_height,(int)game_input.mouse_x,(int)game_input.mouse_y,game_input.mouse_left);
 
         if (paused || inv_open) {
@@ -333,32 +322,6 @@ int main(void) {
 
         C_Transform *player_transform = entity_get_component(g_ecs, player, COMP_TRANSFORM);
         vec3_t cam_pos = player_transform ? player_transform->position : (vec3_t){0};
-
-        /* ── KB diag: coord log + log-change probe ───────────────────────── */
-        LOG_DEBUG(LOG_CAT_INPUT, "pos %.2f %.2f %.2f  keys[w]=%d",
-                  (double)cam_pos.x, (double)cam_pos.y, (double)cam_pos.z,
-                  (int)game_input.keys['w']);
-#ifdef _WIN32
-        {
-            static int  dbg_frames    = 0;
-            static long dbg_log_start = -1;
-            if (dbg_log_start < 0) {
-                FILE *f = fopen("kyub.log", "rb");
-                dbg_log_start = f ? (fseek(f,0,SEEK_END), ftell(f)) : 0;
-                if (f) fclose(f);
-            }
-            if (++dbg_frames == 120) {
-                FILE *f = fopen("kyub.log", "rb");
-                if (f) {
-                    fseek(f, 0, SEEK_END);
-                    long sz = ftell(f);
-                    fclose(f);
-                    LOG_INFO(LOG_CAT_INPUT, "log-changed after 120f: %s (%ld->%ld bytes)",
-                             sz > dbg_log_start ? "YES" : "NO", dbg_log_start, sz);
-                }
-            }
-        }
-#endif
 
         if (!paused && !inv_open) {
             if (game_input.mouse_left && break_cd<=0.0f) {
