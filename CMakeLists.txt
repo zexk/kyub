@@ -83,6 +83,8 @@ target_include_directories(kyub PRIVATE
     ${KILN_DIR}/src/physics
     ${KILN_DIR}/src/voxel)
 
+target_compile_definitions(kyub PRIVATE ENABLE_LOGGER)
+
 target_link_libraries(kyub PRIVATE
     kiln_renderer
     kiln_ecs
