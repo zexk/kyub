@@ -8,7 +8,7 @@
 #include "input.h"
 #include "fps_camera.h"
 #include "ui.h"
-#include "ui_gl.h"
+#include "hud.h"
 #include "physics.h"
 #include "kv.h"
 #include "voxel.h"
@@ -164,11 +164,11 @@ int main(void) {
     kyub_inventory_t player_inv;
     inv_init(&player_inv);
 
-    ui_gl_t gui;
-    if (!ui_gl_init(&gui)) { fprintf(stderr, "Failed to init UI renderer\n"); return 1; }
+    hud_t gui;
+    if (!hud_init(&gui)) { fprintf(stderr, "Failed to init UI renderer\n"); return 1; }
     ui_t debug_ui;
     ui_init(&debug_ui);
-    const ui_draw_t game_draw = ui_gl_draw(&gui);
+    const ui_draw_t game_draw = hud_draw(&gui);
 
     /* ── World ───────────────────────────────────────────────────────────── */
     kv_world_t *world = kv_world_create(6, 2, kyub_terrain_gen, NULL, "saves/default");
@@ -282,7 +282,7 @@ int main(void) {
             }
         }
 
-        ui_gl_begin(&gui,(int)win_width,(int)win_height,(int)game_input.mouse_x,(int)game_input.mouse_y,game_input.mouse_left);
+        hud_begin(&gui,(int)win_width,(int)win_height,(int)game_input.mouse_x,(int)game_input.mouse_y,game_input.mouse_left);
 
         if (paused || inv_open) {
             sys_movement(g_ecs, world, 0.0f);
@@ -439,17 +439,17 @@ int main(void) {
 
             if (pause_screen==PAUSE_MAIN) {
                 float total_h=3.0f*BTN_H+2.0f*BTN_GAP, by=cy2-total_h*0.5f;
-                float title_scale=4.0f, tw=ui_gl_text_width("PAUSED",title_scale), th=7.0f*title_scale;
-                ui_gl_text(&gui,cx2-tw*0.5f,by-th-18.0f,"PAUSED",title_scale,0.95f,0.95f,0.95f);
-                if (ui_gl_button(&gui,bx,by,BTN_W,BTN_H,"resume")) { paused=false; pause_screen=PAUSE_MAIN; window_set_cursor_mode(win,CURSOR_DISABLED); }
+                float title_scale=4.0f, tw=hud_text_width("PAUSED",title_scale), th=7.0f*title_scale;
+                hud_text(&gui,cx2-tw*0.5f,by-th-18.0f,"PAUSED",title_scale,0.95f,0.95f,0.95f);
+                if (hud_button(&gui,bx,by,BTN_W,BTN_H,"resume")) { paused=false; pause_screen=PAUSE_MAIN; window_set_cursor_mode(win,CURSOR_DISABLED); }
                 by+=BTN_H+BTN_GAP;
-                if (ui_gl_button(&gui,bx,by,BTN_W,BTN_H,"options")) pause_screen=PAUSE_OPTIONS;
+                if (hud_button(&gui,bx,by,BTN_W,BTN_H,"options")) pause_screen=PAUSE_OPTIONS;
                 by+=BTN_H+BTN_GAP;
-                if (ui_gl_button(&gui,bx,by,BTN_W,BTN_H,"quit game")) running=false;
+                if (hud_button(&gui,bx,by,BTN_W,BTN_H,"quit game")) running=false;
             } else {
-                float title_scale=4.0f, tw=ui_gl_text_width("OPTIONS",title_scale), th=7.0f*title_scale;
+                float title_scale=4.0f, tw=hud_text_width("OPTIONS",title_scale), th=7.0f*title_scale;
                 float panel_w=280.0f, panel_x=cx2-panel_w*0.5f, panel_y=cy2-130.0f;
-                ui_gl_text(&gui,cx2-tw*0.5f,panel_y-th-12.0f,"OPTIONS",title_scale,0.95f,0.95f,0.95f);
+                hud_text(&gui,cx2-tw*0.5f,panel_y-th-12.0f,"OPTIONS",title_scale,0.95f,0.95f,0.95f);
                 ui_input_t ui_in={.mouse_x=game_input.mouse_x,.mouse_y=game_input.mouse_y,.mouse_down=game_input.mouse_left,.pointer_valid=true};
                 ui_begin(&debug_ui,&ui_in,(float)win_width,(float)win_height,&game_draw);
                 ui_panel_begin(&debug_ui,panel_x,panel_y,panel_w);
@@ -459,7 +459,7 @@ int main(void) {
                 ui_panel_end(&debug_ui);
                 ui_end(&debug_ui);
                 float back_w=140.0f;
-                if (ui_gl_button(&gui,cx2-back_w*0.5f,panel_y+200.0f,back_w,BTN_H,"back"))
+                if (hud_button(&gui,cx2-back_w*0.5f,panel_y+200.0f,back_w,BTN_H,"back"))
                     pause_screen=PAUSE_MAIN;
             }
 #undef BTN_W
@@ -513,7 +513,7 @@ int main(void) {
     renderer_destroy_vao(hud_vao);      renderer_destroy_buffer(hud_vbo);
     inv_renderer_shutdown(&inv_r);
     renderer_destroy_texture(tex_array);
-    ui_gl_shutdown(&gui);
+    hud_shutdown(&gui);
     world_destroy(g_ecs);
     renderer_shutdown();
 

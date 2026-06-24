@@ -239,7 +239,7 @@ void inv_renderer_shutdown(inv_renderer_t *r) {
 
 /* ── Internal draw helpers ───────────────────────────────────────────────── */
 
-/* NDC slot bottom-left → pixel top-left (for ui_gl_text, which uses pixel coords) */
+/* NDC slot bottom-left → pixel top-left (for hud_text, which uses pixel coords) */
 static void slot_text_pos(SlotRect r, float win_w, float win_h, float *px, float *py) {
     *px = (r.x0 * 0.5f + 0.5f) * win_w + 2.0f;
     *py = (0.5f - r.y0 * 0.5f) * win_h - 10.0f;
@@ -286,7 +286,7 @@ static void draw_slot_icons(inv_renderer_t *r, R_Texture tex_array,
                              const SlotRect *rects, int count,
                              const kyub_item_t *items) {
     /* Build geometry before touching any renderer state so the early-return
-       never leaves the inv pipeline active.  ui_gl_text does not call
+       never leaves the inv pipeline active.  hud_text does not call
        renderer_use_program itself, so leaving the inv pipeline set causes it
        to render HUD-format quads through the icon pipeline → texture garbage. */
     float buf[45 * 30];
@@ -315,14 +315,14 @@ static void draw_slot_icons(inv_renderer_t *r, R_Texture tex_array,
         renderer_bind_buffer(R_BUF_ARRAY, R_INVALID_HANDLE);
     }
 
-    /* Always restore hud pipeline so subsequent ui_gl_text calls use the
+    /* Always restore hud pipeline so subsequent hud_text calls use the
        correct vertex format (HUD: stride 8, not icon: stride 20). */
     renderer_use_program(hud_prog);
 }
 
 static void draw_slot_counts(const SlotRect *rects, int count,
                               const kyub_item_t *items,
-                              ui_gl_t *gui, float win_w, float win_h) {
+                              hud_t *gui, float win_w, float win_h) {
     char text[8];
     for (int i = 0; i < count; i++) {
         const kyub_item_t *it = &items[i];
@@ -330,10 +330,10 @@ static void draw_slot_counts(const SlotRect *rects, int count,
         float px, py;
         slot_text_pos(rects[i], win_w, win_h, &px, &py);
         snprintf(text, sizeof(text), "%d", (int)it->count);
-        float tw = ui_gl_text_width(text, 1.0f);
+        float tw = hud_text_width(text, 1.0f);
         /* right-align within the slot */
         float slot_px1 = (rects[i].x1 * 0.5f + 0.5f) * win_w - 2.0f;
-        ui_gl_text(gui, slot_px1 - tw, py, text, 1.0f, 0.9f, 0.9f, 0.9f);
+        hud_text(gui, slot_px1 - tw, py, text, 1.0f, 0.9f, 0.9f, 0.9f);
     }
 }
 
@@ -341,7 +341,7 @@ static void draw_slot_counts(const SlotRect *rects, int count,
 
 void inv_draw_hotbar(inv_renderer_t *r, const kyub_inventory_t *inv,
                      R_Texture tex_array, R_Program hud_prog,
-                     ui_gl_t *gui, float win_w, float win_h) {
+                     hud_t *gui, float win_w, float win_h) {
     /* Build rect array and item snapshot for the 9 hotbar positions */
     SlotRect    rects[HOTBAR_SIZE];
     kyub_item_t items[HOTBAR_SIZE];
@@ -361,7 +361,7 @@ void inv_draw_hotbar(inv_renderer_t *r, const kyub_inventory_t *inv,
 
 void inv_draw_screen(inv_renderer_t *r, const kyub_inventory_t *inv,
                      R_Texture tex_array, R_Program hud_prog,
-                     ui_gl_t *gui, float win_w, float win_h, int hovered_slot) {
+                     hud_t *gui, float win_w, float win_h, int hovered_slot) {
     /* ── Grid ── */
     SlotRect grid_rects[INV_SLOTS];
     for (int i = 0; i < INV_SLOTS; i++) grid_rects[i] = grid_rect(i);
@@ -392,6 +392,6 @@ void inv_draw_screen(inv_renderer_t *r, const kyub_inventory_t *inv,
     if (hovered_slot >= 0) {
         float px, py;
         slot_text_pos(grid_rects[hovered_slot], win_w, win_h, &px, &py);
-        ui_gl_text(gui, px, py - 12.0f, "1-9 pin", 1.0f, 0.7f, 0.7f, 0.7f);
+        hud_text(gui, px, py - 12.0f, "1-9 pin", 1.0f, 0.7f, 0.7f, 0.7f);
     }
 }

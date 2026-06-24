@@ -5,7 +5,7 @@
 
 #include "kv.h"
 #include "renderer.h"
-#include "ui_gl.h"
+#include "hud.h"
 
 /* ── Item type registry ──────────────────────────────────────────────────── */
 
@@ -79,9 +79,9 @@ void inv_renderer_shutdown(inv_renderer_t *r);
 /* Draw the 9-slot hotbar strip at the bottom of the screen. Always visible. */
 void inv_draw_hotbar(inv_renderer_t *r, const kyub_inventory_t *inv,
                      R_Texture tex_array, R_Program hud_prog,
-                     ui_gl_t *gui, float win_w, float win_h);
+                     hud_t *gui, float win_w, float win_h);
 
 /* Draw the full inventory screen (9×4 grid + hotbar row). Call only when open. */
 void inv_draw_screen(inv_renderer_t *r, const kyub_inventory_t *inv,
                      R_Texture tex_array, R_Program hud_prog,
-                     ui_gl_t *gui, float win_w, float win_h, int hovered_slot);
+                     hud_t *gui, float win_w, float win_h, int hovered_slot);
