@@ -3,10 +3,10 @@
 #include "physics.h"
 
 static bool world_solid_cb(void *ctx, int x, int y, int z) {
-    return world_is_solid((World *)ctx, x, y, z);
+    return kv_world_is_solid((kv_world_t *)ctx, x, y, z);
 }
 
-void sys_movement(world_t *ecs, World *world, float dt) {
+void sys_movement(world_t *ecs, kv_world_t *world, float dt) {
     signature_t sig;
     signature_clear(&sig);
     signature_set(&sig, COMP_TRANSFORM);
@@ -32,10 +32,9 @@ void sys_movement(world_t *ecs, World *world, float dt) {
         movement->velocity  = body.velocity;
         movement->grounded  = body.grounded;
 
-        /* Respawn if the entity fell out of the world. */
-        if (transform->position.y < 0.0f) {
-            transform->position = (vec3){8.0f, 20.0f, 8.0f};
-            movement->velocity  = (vec3){0.0f, 0.0f, 0.0f};
+        if (transform->position.y < -64.0f) {
+            transform->position = (vec3_t){8.0f, 20.0f, 8.0f};
+            movement->velocity  = (vec3_t){0.0f, 0.0f, 0.0f};
             movement->grounded  = false;
         }
     }

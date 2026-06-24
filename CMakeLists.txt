@@ -10,9 +10,6 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # ── Kiln engine ──────────────────────────────────────────────────────────────
-# Kiln is an external build dependency. The flake passes -DKILN_DIR=${kiln}.
-# Non-Nix users clone kiln (https://github.com/zexk/kiln) and point KILN_DIR at
-# it, either with -DKILN_DIR=/path/to/kiln or via the KILN_DIR environment var.
 if(NOT DEFINED KILN_DIR AND DEFINED ENV{KILN_DIR})
   set(KILN_DIR "$ENV{KILN_DIR}")
 endif()
@@ -26,33 +23,45 @@ add_subdirectory(${KILN_DIR} ${CMAKE_CURRENT_BINARY_DIR}/kiln)
 
 # ── Shader compilation ───────────────────────────────────────────────────────
 find_program(GLSLC glslc REQUIRED)
-set(shader_src_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
-set(shader_out_dir ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+set(shader_src_dir  ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
+set(shader_out_dir  ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+set(kv_shader_src   ${KILN_DIR}/src/voxel/shaders)
 file(MAKE_DIRECTORY ${shader_out_dir})
 
 set(spv_files "")
+
+# Game shaders (in kyub/shaders/)
 foreach(shader
-    basic.vert   basic.frag
     hud.vert     hud.frag
     skybox.vert  skybox.frag
-    outline.vert outline.frag)
+    outline.vert outline.frag
+    inv.vert     inv.frag)
     add_custom_command(
         OUTPUT  ${shader_out_dir}/${shader}.spv
-        COMMAND ${GLSLC} ${shader_src_dir}/${shader}
-                         -o ${shader_out_dir}/${shader}.spv
+        COMMAND ${GLSLC} ${shader_src_dir}/${shader} -o ${shader_out_dir}/${shader}.spv
         DEPENDS ${shader_src_dir}/${shader}
         COMMENT "glslc ${shader}")
     list(APPEND spv_files ${shader_out_dir}/${shader}.spv)
 endforeach()
+
+# kiln-voxel shaders (sourced from kiln)
+foreach(shader voxel.vert voxel.frag)
+    add_custom_command(
+        OUTPUT  ${shader_out_dir}/${shader}.spv
+        COMMAND ${GLSLC} ${kv_shader_src}/${shader} -o ${shader_out_dir}/${shader}.spv
+        DEPENDS ${kv_shader_src}/${shader}
+        COMMENT "glslc (kiln-voxel) ${shader}")
+    list(APPEND spv_files ${shader_out_dir}/${shader}.spv)
+endforeach()
+
 add_custom_target(kyub_shaders DEPENDS ${spv_files})
 
 # ── Game executable ──────────────────────────────────────────────────────────
 add_executable(kyub
     src/main.c
     src/voxel.c
-    src/mesh.c
+    src/inventory.c
     src/components.c
-    src/world.c
     src/systems.c)
 
 add_dependencies(kyub kyub_shaders)
@@ -71,7 +80,8 @@ target_include_directories(kyub PRIVATE
     ${KILN_DIR}/src/texture
     ${KILN_DIR}/src/ecs
     ${KILN_DIR}/src/camera
-    ${KILN_DIR}/src/physics)
+    ${KILN_DIR}/src/physics
+    ${KILN_DIR}/src/voxel)
 
 target_link_libraries(kyub PRIVATE
     kiln_renderer
@@ -81,5 +91,5 @@ target_link_libraries(kyub PRIVATE
     kiln_physics
     kiln_core
     kiln_ui
-    kiln_ui_gl
-    kiln_texture)
+    kiln_texture
+    kiln_voxel)

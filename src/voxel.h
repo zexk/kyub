@@ -1,29 +1,26 @@
 #pragma once
 
-#include <stdint.h>
-#include "renderer.h"
-#include "math3d.h"
+#include "kv.h"
 
-#define CHUNK_SIZE 16
+/* Block IDs — set by kyub_blocks_register(), valid after that call. */
+extern uint16_t BLOCK_DIRT;
+extern uint16_t BLOCK_GRASS;
+extern uint16_t BLOCK_STONE;
+extern uint16_t BLOCK_SAND;
+extern uint16_t BLOCK_GRAVEL;
+extern uint16_t BLOCK_WOOD;
+extern uint16_t BLOCK_LEAVES;
+extern uint16_t BLOCK_WATER;
 
-typedef enum {
-    BLOCK_AIR    = 0,
-    BLOCK_DIRT   = 1,
-    BLOCK_GRASS  = 2,
-    BLOCK_STONE  = 3,
-    BLOCK_SAND   = 4,
-    BLOCK_GRAVEL = 5,
-    BLOCK_WOOD   = 6,
-    BLOCK_LEAVES = 7,
-    BLOCK_WATER  = 8,
-} BlockType;
+/* Register all kyub block types with kiln-voxel. Call before kv_world_create(). */
+void kyub_blocks_register(void);
 
-typedef struct {
-    uint8_t blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
-    int     x, z;
-    vec3    min, max;
-} Chunk;
+/* Register all kyub item types. Call after kv_build_texture_array(). */
+void kyub_items_register(void);
 
-typedef struct { int x, y, z; } BlockPos;
-
-void chunk_init(Chunk *chunk, int x, int z);
+/* Terrain generator (matches kv_gen_fn). Pass to kv_world_create(). */
+void kyub_terrain_gen(
+    uint16_t blocks[KV_CHUNK_SIZE][KV_CHUNK_SIZE][KV_CHUNK_SIZE],
+    uint16_t meta[KV_CHUNK_SIZE][KV_CHUNK_SIZE][KV_CHUNK_SIZE],
+    int32_t cx, int32_t cy, int32_t cz,
+    void *ctx);
