@@ -219,6 +219,7 @@ int main(void) {
     float  fps      = 0.0f;
     double fps_acc  = 0.0;
     int    fps_frames = 0;
+    float  ms_update = 0.0f, ms_draw = 0.0f, ms_swap = 0.0f;
     uint32_t win_width=WINDOW_WIDTH, win_height=WINDOW_HEIGHT;
     window_size(win, &win_width, &win_height);
 
@@ -362,15 +363,16 @@ int main(void) {
         renderer_disable(R_CAP_BLEND);
         renderer_clear(0.1f,0.1f,0.12f,1.0f);
 
-        kv_world_update(world, cam_pos);
+        { double t0=kln_timer_now(); kv_world_update(world, cam_pos); ms_update=(float)((kln_timer_now()-t0)*1000.0); }
 
         float aspect = (win_height>0) ? (float)win_width/(float)win_height : 1.0f;
         mat4_t projection = mat4_perspective(fov_degrees*KLN_PI/180.0f, aspect, NEAR_PLANE, FAR_PLANE);
         mat4_t view       = fps_camera_view(&camera, cam_pos);
 
         /* ── Voxel world ─────────────────────────────────────────────────── */
-        kv_world_draw(world, tex_array, view, projection,
+        { double t0=kln_timer_now(); kv_world_draw(world, tex_array, view, projection,
                       (vec3_t){FOG_COLOR_R, FOG_COLOR_G, FOG_COLOR_B}, FOG_DENSITY);
+          ms_draw=(float)((kln_timer_now()-t0)*1000.0); }
 
         /* ── Block highlight ─────────────────────────────────────────────── */
         if (hl_found) {
@@ -426,7 +428,7 @@ int main(void) {
         if (paused) {
             renderer_use_program(hud_program);
             renderer_uniform_vec3(renderer_uniform_location(hud_program,"uColor"),0.0f,0.0f,0.0f);
-            renderer_uniform_float(renderer_uniform_location(hud_program,"uAlpha"),0.45f);
+            renderer_uniform_float(renderer_uniform_location(hud_program,"uAlpha"),0.30f);
             renderer_bind_vao(overlay_vao);
             renderer_draw_arrays(R_PRIM_TRIANGLES,0,3);
             renderer_bind_vao(R_INVALID_HANDLE);
@@ -488,6 +490,10 @@ int main(void) {
             ui_text(&debug_ui,"%.0f fps",(double)fps);
             ui_text(&debug_ui,"pos  %.1f %.1f %.1f",(double)cam_pos.x,(double)cam_pos.y,(double)cam_pos.z);
             ui_separator(&debug_ui);
+            ui_text(&debug_ui,"update %.2f ms",(double)ms_update);
+            ui_text(&debug_ui,"draw   %.2f ms",(double)ms_draw);
+            ui_text(&debug_ui,"swap   %.2f ms",(double)ms_swap);
+            ui_separator(&debug_ui);
             ui_slider_int(&debug_ui,"render dist",&render_distance,1,16);
             ui_panel_end(&debug_ui);
             ui_end(&debug_ui);
@@ -497,7 +503,7 @@ int main(void) {
         if (now-last_save_flush>=5.0) { kv_world_flush_saves(world); last_save_flush=now; }
 
         renderer_enable(R_CAP_DEPTH_TEST);
-        renderer_swap();
+        { double t0=kln_timer_now(); renderer_swap(); ms_swap=(float)((kln_timer_now()-t0)*1000.0); }
         game_input_end_frame(&game_input);
     }
 
