@@ -86,7 +86,7 @@ target_include_directories(kyub PRIVATE
 target_compile_definitions(kyub PRIVATE ENABLE_LOGGER)
 
 target_link_libraries(kyub PRIVATE
-    kiln_renderer
+    kiln_render
     kiln_ecs
     kiln_camera
     kiln_platform

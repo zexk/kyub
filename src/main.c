@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "render.h"
 #include "platform.h"
 #include "core.h"
 #include "timer.h"
@@ -64,6 +65,196 @@ static bool player_collides_block(vec3_t player_pos, BlockPos b) {
            (p_minz<b.z+1&&p_maxz>b.z);
 }
 
+/* ── Draw context ─────────────────────────────────────────────────────────── */
+
+typedef struct {
+    /* Resources — set once at init */
+    window_t         *win;
+    kv_world_t       *world;
+    R_Texture         tex_array;
+    R_Program         skybox_prog, outline_prog, hud_prog;
+    R_VAO             skybox_vao, outline_vao, overlay_vao, hud_vao;
+    inv_renderer_t   *inv_r;
+    kyub_inventory_t *player_inv;
+    hud_t            *gui;
+    ui_t             *debug_ui;
+    const ui_draw_t  *game_draw_fn;
+    game_input_t     *game_input;
+
+    /* Pointers into main locals — callbacks may modify through them */
+    bool             *paused;
+    bool             *running;
+    bool             *inv_open;
+    bool             *show_debug;
+    PauseScreen      *pause_screen;
+    int              *render_distance;
+    float            *fov_degrees;
+    float            *camera_sensitivity;
+
+    /* Per-frame values — populated before render_draw() */
+    mat4_t            view, projection;
+    vec3_t            cam_pos;
+    float             win_width, win_height;
+    bool              hl_found;
+    phys_raycast_hit_t hl_hit;
+    float             fps, ms_update, ms_draw, ms_swap;
+} DrawCtx;
+
+static DrawCtx s_draw;
+
+static void kyub_draw(void *ud) {
+    (void)ud;
+
+    renderer_enable(R_CAP_DEPTH_TEST);
+    renderer_enable(R_CAP_CULL_FACE);
+    renderer_disable(R_CAP_BLEND);
+
+    /* ── Voxel world ─────────────────────────────────────────────────── */
+    kv_world_draw(s_draw.world, s_draw.tex_array, s_draw.view, s_draw.projection,
+                  (vec3_t){FOG_COLOR_R, FOG_COLOR_G, FOG_COLOR_B}, FOG_DENSITY);
+
+    /* ── Block highlight ─────────────────────────────────────────────── */
+    if (s_draw.hl_found) {
+        renderer_use_program(s_draw.outline_prog);
+        mat4_t hl_model = mat4_translation((vec3_t){(float)s_draw.hl_hit.x,
+                                                    (float)s_draw.hl_hit.y,
+                                                    (float)s_draw.hl_hit.z});
+        renderer_uniform_mat4(renderer_uniform_location(s_draw.outline_prog,"model"), hl_model.m);
+        renderer_uniform_mat4(renderer_uniform_location(s_draw.outline_prog,"view"),  s_draw.view.m);
+        renderer_uniform_mat4(renderer_uniform_location(s_draw.outline_prog,"projection"), s_draw.projection.m);
+        renderer_uniform_vec3(renderer_uniform_location(s_draw.outline_prog,"uColor"), 0.6f,0.6f,0.6f);
+        renderer_depth_mask(false);
+        renderer_polygon_offset(-1.0f,-1.0f);
+        renderer_enable(R_CAP_POLYGON_OFFSET_LINE);
+        renderer_line_width(3.0f);
+        renderer_bind_vao(s_draw.outline_vao);
+        renderer_draw_arrays(R_PRIM_LINES, 0, 24);
+        renderer_bind_vao(R_INVALID_HANDLE);
+        renderer_line_width(1.0f);
+        renderer_disable(R_CAP_POLYGON_OFFSET_LINE);
+        renderer_depth_mask(true);
+    }
+
+    /* ── Skybox ──────────────────────────────────────────────────────── */
+    renderer_depth_mask(false);
+    renderer_depth_func(R_FUNC_LEQUAL);
+    renderer_disable(R_CAP_CULL_FACE);
+    renderer_use_program(s_draw.skybox_prog);
+    mat4_t inv_proj     = mat4_inverse(s_draw.projection);
+    mat4_t view_rot     = s_draw.view;
+    view_rot.m[12]=view_rot.m[13]=view_rot.m[14]=0;
+    mat4_t inv_view_rot = mat4_transpose(view_rot);
+    renderer_uniform_mat4(renderer_uniform_location(s_draw.skybox_prog,"inv_projection"),    inv_proj.m);
+    renderer_uniform_mat4(renderer_uniform_location(s_draw.skybox_prog,"inv_view_rotation"), inv_view_rot.m);
+    renderer_bind_vao(s_draw.skybox_vao);
+    renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
+    renderer_bind_vao(R_INVALID_HANDLE);
+    renderer_enable(R_CAP_CULL_FACE);
+    renderer_depth_func(R_FUNC_LESS);
+    renderer_depth_mask(true);
+
+    /* ── HUD ─────────────────────────────────────────────────────────── */
+    renderer_disable(R_CAP_DEPTH_TEST);
+    renderer_enable(R_CAP_BLEND);
+    renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
+    renderer_use_program(s_draw.hud_prog);
+    renderer_bind_vao(s_draw.hud_vao);
+    renderer_uniform_vec3(renderer_uniform_location(s_draw.hud_prog,"uColor"), 0.7f,0.7f,0.7f);
+    renderer_uniform_float(renderer_uniform_location(s_draw.hud_prog,"uAlpha"), 1.0f);
+    renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 12);
+
+    inv_draw_hotbar(s_draw.inv_r, s_draw.player_inv, s_draw.tex_array, s_draw.hud_prog,
+                    s_draw.gui, s_draw.win_width, s_draw.win_height);
+
+    /* ── Pause ───────────────────────────────────────────────────────── */
+    if (*s_draw.paused) {
+        renderer_use_program(s_draw.hud_prog);
+        renderer_uniform_vec3(renderer_uniform_location(s_draw.hud_prog,"uColor"),0.0f,0.0f,0.0f);
+        renderer_uniform_float(renderer_uniform_location(s_draw.hud_prog,"uAlpha"),0.30f);
+        renderer_bind_vao(s_draw.overlay_vao);
+        renderer_draw_arrays(R_PRIM_TRIANGLES,0,3);
+        renderer_bind_vao(R_INVALID_HANDLE);
+
+#define BTN_W 240.0f
+#define BTN_H 48.0f
+#define BTN_GAP 14.0f
+        float cx2=s_draw.win_width*0.5f, cy2=s_draw.win_height*0.5f;
+        float bx=cx2-BTN_W*0.5f;
+
+        if (*s_draw.pause_screen==PAUSE_MAIN) {
+            float total_h=3.0f*BTN_H+2.0f*BTN_GAP, by=cy2-total_h*0.5f;
+            float title_scale=4.0f, tw=hud_text_width("PAUSED",title_scale), th=7.0f*title_scale;
+            hud_text(s_draw.gui,cx2-tw*0.5f,by-th-18.0f,"PAUSED",title_scale,0.95f,0.95f,0.95f);
+            if (hud_button(s_draw.gui,bx,by,BTN_W,BTN_H,"resume")) {
+                *s_draw.paused=false; *s_draw.pause_screen=PAUSE_MAIN;
+                window_set_cursor_mode(s_draw.win,CURSOR_DISABLED);
+            }
+            by+=BTN_H+BTN_GAP;
+            if (hud_button(s_draw.gui,bx,by,BTN_W,BTN_H,"options")) *s_draw.pause_screen=PAUSE_OPTIONS;
+            by+=BTN_H+BTN_GAP;
+            if (hud_button(s_draw.gui,bx,by,BTN_W,BTN_H,"quit game")) *s_draw.running=false;
+        } else {
+            float title_scale=4.0f, tw=hud_text_width("OPTIONS",title_scale), th=7.0f*title_scale;
+            float panel_w=280.0f, panel_x=cx2-panel_w*0.5f, panel_y=cy2-130.0f;
+            hud_text(s_draw.gui,cx2-tw*0.5f,panel_y-th-12.0f,"OPTIONS",title_scale,0.95f,0.95f,0.95f);
+            ui_input_t ui_in={.mouse_x=s_draw.game_input->mouse_x,
+                              .mouse_y=s_draw.game_input->mouse_y,
+                              .mouse_down=s_draw.game_input->mouse_left,
+                              .pointer_valid=true};
+            ui_begin(s_draw.debug_ui,&ui_in,s_draw.win_width,s_draw.win_height,s_draw.game_draw_fn);
+            ui_panel_begin(s_draw.debug_ui,panel_x,panel_y,panel_w);
+            ui_slider_int(s_draw.debug_ui,"render dist",s_draw.render_distance,1,16);
+            ui_slider_float(s_draw.debug_ui,"sensitivity",s_draw.camera_sensitivity,0.0005f,0.005f);
+            ui_slider_float(s_draw.debug_ui,"FOV",s_draw.fov_degrees,30.0f,110.0f);
+            ui_panel_end(s_draw.debug_ui);
+            ui_end(s_draw.debug_ui);
+            float back_w=140.0f;
+            if (hud_button(s_draw.gui,cx2-back_w*0.5f,panel_y+200.0f,back_w,BTN_H,"back"))
+                *s_draw.pause_screen=PAUSE_MAIN;
+        }
+#undef BTN_W
+#undef BTN_H
+#undef BTN_GAP
+        renderer_use_program(R_INVALID_HANDLE);
+    }
+
+    /* ── Inventory screen ────────────────────────────────────────────── */
+    if (*s_draw.inv_open) {
+        int hsl = inv_hovered_slot(s_draw.game_input->mouse_x, s_draw.game_input->mouse_y,
+                                   s_draw.win_width, s_draw.win_height);
+        inv_draw_screen(s_draw.inv_r, s_draw.player_inv, s_draw.tex_array, s_draw.hud_prog,
+                        s_draw.gui, s_draw.win_width, s_draw.win_height, hsl);
+    }
+
+    /* ── Debug (F3) ──────────────────────────────────────────────────── */
+    if (*s_draw.show_debug && !*s_draw.paused) {
+        renderer_disable(R_CAP_DEPTH_TEST);
+        renderer_enable(R_CAP_BLEND);
+        renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
+        renderer_use_program(s_draw.hud_prog);
+        ui_input_t ui_in={.mouse_x=s_draw.game_input->mouse_x,
+                          .mouse_y=s_draw.game_input->mouse_y,
+                          .mouse_down=s_draw.game_input->mouse_left,
+                          .pointer_valid=*s_draw.paused};
+        ui_begin(s_draw.debug_ui,&ui_in,s_draw.win_width,s_draw.win_height,s_draw.game_draw_fn);
+        ui_panel_begin(s_draw.debug_ui,10.0f,10.0f,240.0f);
+        ui_text(s_draw.debug_ui,"%.0f fps",(double)s_draw.fps);
+        ui_text(s_draw.debug_ui,"pos  %.1f %.1f %.1f",
+                (double)s_draw.cam_pos.x,(double)s_draw.cam_pos.y,(double)s_draw.cam_pos.z);
+        ui_separator(s_draw.debug_ui);
+        ui_text(s_draw.debug_ui,"update %.2f ms",(double)s_draw.ms_update);
+        ui_text(s_draw.debug_ui,"draw   %.2f ms",(double)s_draw.ms_draw);
+        ui_text(s_draw.debug_ui,"swap   %.2f ms",(double)s_draw.ms_swap);
+        ui_separator(s_draw.debug_ui);
+        ui_slider_int(s_draw.debug_ui,"render dist",s_draw.render_distance,1,16);
+        ui_panel_end(s_draw.debug_ui);
+        ui_end(s_draw.debug_ui);
+        renderer_enable(R_CAP_DEPTH_TEST);
+    }
+}
+
+/* ── Main ─────────────────────────────────────────────────────────────────── */
+
 int main(void) {
     core_install_crash_handler();
     noise_init(42);
@@ -78,17 +269,19 @@ int main(void) {
     uint32_t init_w, init_h;
     window_size(win, &init_w, &init_h);
 
-    platform_native_handles_t nh = window_get_native_handles(win);
-    if (!renderer_init((int)init_w, (int)init_h, &nh)) {
-        fprintf(stderr, "Failed to initialize renderer\n");
+    /* Rich renderer must come first — thin renderer borrows its Vulkan context. */
+    if (!render_init(win)) {
+        fprintf(stderr, "Failed to initialize rich renderer\n");
         window_destroy(win); return 1;
+    }
+
+    if (!renderer_init((int)init_w, (int)init_h, NULL)) {
+        fprintf(stderr, "Failed to initialize renderer\n");
+        render_shutdown(); window_destroy(win); return 1;
     }
 
     renderer_viewport(0, 0, (int)init_w, (int)init_h);
     renderer_swap_interval(0);
-    renderer_enable(R_CAP_DEPTH_TEST);
-    renderer_enable(R_CAP_CULL_FACE);
-    renderer_enable(R_CAP_MULTISAMPLE);
 
     /* ── ECS ─────────────────────────────────────────────────────────────── */
     g_ecs = world_create();
@@ -98,14 +291,12 @@ int main(void) {
     kyub_blocks_register();
     R_Texture tex_array = kv_build_texture_array(16);
     if (tex_array == R_INVALID_HANDLE) { fprintf(stderr, "Failed to build texture array\n"); return 1; }
-    kyub_items_register();
 
-    /* ── Skybox ──────────────────────────────────────────────────────────── */
+    /* ── Skybox ─────────────────────────────────────────────────────────── */
+    static const float skybox_tri[] = {-1,-1, 3,-1, -1,3};
     R_Program skybox_program = renderer_create_program("shaders/skybox.vert", "shaders/skybox.frag");
-    if (skybox_program == R_INVALID_HANDLE) { fprintf(stderr, "Failed to load skybox shader\n"); return 1; }
-    R_VAO    skybox_vao = renderer_create_vao();
-    R_Buffer skybox_vbo = renderer_create_buffer();
-    float skybox_tri[] = { -1.0f,-1.0f,  3.0f,-1.0f,  -1.0f,3.0f };
+    R_VAO     skybox_vao     = renderer_create_vao();
+    R_Buffer  skybox_vbo     = renderer_create_buffer();
     renderer_bind_vao(skybox_vao);
     renderer_bind_buffer(R_BUF_ARRAY, skybox_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(skybox_tri), skybox_tri, R_USAGE_STATIC);
@@ -113,16 +304,15 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    /* ── Block outline ───────────────────────────────────────────────────── */
-    R_Program outline_program = renderer_create_program("shaders/outline.vert", "shaders/outline.frag");
-    if (outline_program == R_INVALID_HANDLE) { fprintf(stderr, "Failed to load outline shader\n"); return 1; }
-    R_VAO    outline_vao = renderer_create_vao();
-    R_Buffer outline_vbo = renderer_create_buffer();
-    float outline_cube[] = {
-        0,0,0, 1,0,0,   1,0,0, 1,0,1,   1,0,1, 0,0,1,   0,0,1, 0,0,0,
-        0,1,0, 1,1,0,   1,1,0, 1,1,1,   1,1,1, 0,1,1,   0,1,1, 0,1,0,
-        0,0,0, 0,1,0,   1,0,0, 1,1,0,   1,0,1, 1,1,1,   0,0,1, 0,1,1,
+    /* ── Block outline ──────────────────────────────────────────────────── */
+    static const float outline_cube[] = {
+        0,0,0, 1,0,0,  1,0,0, 1,1,0,  1,1,0, 0,1,0,  0,1,0, 0,0,0,
+        0,0,1, 1,0,1,  1,0,1, 1,1,1,  1,1,1, 0,1,1,  0,1,1, 0,0,1,
+        0,0,0, 0,0,1,  1,0,0, 1,0,1,  1,1,0, 1,1,1,  0,1,0, 0,1,1,
     };
+    R_Program outline_program = renderer_create_program("shaders/outline.vert", "shaders/outline.frag");
+    R_VAO     outline_vao     = renderer_create_vao();
+    R_Buffer  outline_vbo     = renderer_create_buffer();
     renderer_bind_vao(outline_vao);
     renderer_bind_buffer(R_BUF_ARRAY, outline_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(outline_cube), outline_cube, R_USAGE_STATIC);
@@ -130,12 +320,11 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    /* ── Dim overlay ─────────────────────────────────────────────────────── */
+    /* ── Fullscreen overlay (for pause dimming) ─────────────────────────── */
+    static const float overlay_tri[] = {-1,-1, 3,-1, -1,3};
     R_Program hud_program = renderer_create_program("shaders/hud.vert", "shaders/hud.frag");
-    if (hud_program == R_INVALID_HANDLE) { fprintf(stderr, "Failed to load HUD shader\n"); return 1; }
-    R_VAO    overlay_vao = renderer_create_vao();
-    R_Buffer overlay_vbo = renderer_create_buffer();
-    float overlay_tri[] = { -1.0f,-1.0f,  3.0f,-1.0f,  -1.0f,3.0f };
+    R_VAO     overlay_vao = renderer_create_vao();
+    R_Buffer  overlay_vbo = renderer_create_buffer();
     renderer_bind_vao(overlay_vao);
     renderer_bind_buffer(R_BUF_ARRAY, overlay_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(overlay_tri), overlay_tri, R_USAGE_STATIC);
@@ -143,14 +332,15 @@ int main(void) {
     renderer_enable_attrib(0);
     renderer_bind_vao(R_INVALID_HANDLE);
 
-    /* ── Crosshair ───────────────────────────────────────────────────────── */
+    /* ── Crosshair ──────────────────────────────────────────────────────── */
+    static const float crosshair[] = {
+        -0.5f,-0.025f,  0.5f,-0.025f,  0.5f,0.025f,
+        -0.5f,-0.025f,  0.5f, 0.025f, -0.5f,0.025f,
+        -0.025f,-0.5f,  0.025f,-0.5f,  0.025f,0.5f,
+        -0.025f,-0.5f,  0.025f, 0.5f, -0.025f,0.5f,
+    };
     R_VAO    hud_vao = renderer_create_vao();
     R_Buffer hud_vbo = renderer_create_buffer();
-    float hw2=0.015f, hh2=0.0015f, vw=0.0015f, vh=0.020f;
-    float crosshair[] = {
-        -hw2,-hh2,  hw2,-hh2,  hw2, hh2,  -hw2,-hh2,  hw2, hh2,  -hw2, hh2,
-        -vw, -vh,   vw, -vh,   vw,  vh,   -vw, -vh,   vw,  vh,   -vw,  vh,
-    };
     renderer_bind_vao(hud_vao);
     renderer_bind_buffer(R_BUF_ARRAY, hud_vbo);
     renderer_buffer_data(R_BUF_ARRAY, sizeof(crosshair), crosshair, R_USAGE_STATIC);
@@ -225,6 +415,34 @@ int main(void) {
     window_size(win, &win_width, &win_height);
 
     game_input_t game_input; game_input_init(&game_input);
+
+    /* Wire up the draw context — stable pointers, set once */
+    s_draw.win              = win;
+    s_draw.world            = world;
+    s_draw.tex_array        = tex_array;
+    s_draw.skybox_prog      = skybox_program;
+    s_draw.outline_prog     = outline_program;
+    s_draw.hud_prog         = hud_program;
+    s_draw.skybox_vao       = skybox_vao;
+    s_draw.outline_vao      = outline_vao;
+    s_draw.overlay_vao      = overlay_vao;
+    s_draw.hud_vao          = hud_vao;
+    s_draw.inv_r            = &inv_r;
+    s_draw.player_inv       = &player_inv;
+    s_draw.gui              = &gui;
+    s_draw.debug_ui         = &debug_ui;
+    s_draw.game_draw_fn     = &game_draw;
+    s_draw.game_input       = &game_input;
+    s_draw.paused           = &paused;
+    s_draw.running          = &running;
+    s_draw.inv_open         = &inv_open;
+    s_draw.show_debug       = &show_debug;
+    s_draw.pause_screen     = &pause_screen;
+    s_draw.render_distance  = &render_distance;
+    s_draw.fov_degrees      = &fov_degrees;
+    s_draw.camera_sensitivity = &camera.sensitivity;
+
+    renderer_set_overlay_fn(kyub_draw, NULL);
 
     while (running) {
         window_size(win, &win_width, &win_height);
@@ -356,18 +574,11 @@ int main(void) {
             }
         }
 
-        phys_raycast_hit_t hl_hit = phys_raycast_voxel(cam_pos, camera.front, RAYCAST_MAX_DISTANCE, ray_solid_cb, world);
-        bool hl_found = hl_hit.hit;
-
-        renderer_enable(R_CAP_DEPTH_TEST);
-        renderer_enable(R_CAP_CULL_FACE);
-        renderer_disable(R_CAP_BLEND);
-        renderer_clear(0.1f,0.1f,0.12f,1.0f);
-
         if (render_distance != prev_render_distance) {
             kv_world_flush_saves(world);
             kv_world_destroy(world);
             world = kv_world_create(render_distance, 2, kyub_terrain_gen, NULL, "saves/default");
+            s_draw.world = world;
             prev_render_distance = render_distance;
         }
 
@@ -377,147 +588,33 @@ int main(void) {
         mat4_t projection = mat4_perspective(fov_degrees*KLN_PI/180.0f, aspect, NEAR_PLANE, FAR_PLANE);
         mat4_t view       = fps_camera_view(&camera, cam_pos);
 
-        /* ── Voxel world ─────────────────────────────────────────────────── */
-        { double t0=kln_timer_now(); kv_world_draw(world, tex_array, view, projection,
-                      (vec3_t){FOG_COLOR_R, FOG_COLOR_G, FOG_COLOR_B}, FOG_DENSITY);
-          ms_draw=(float)((kln_timer_now()-t0)*1000.0); }
+        phys_raycast_hit_t hl_hit = phys_raycast_voxel(cam_pos, camera.front, RAYCAST_MAX_DISTANCE, ray_solid_cb, world);
 
-        /* ── Block highlight ─────────────────────────────────────────────── */
-        if (hl_found) {
-            renderer_use_program(outline_program);
-            mat4_t hl_model = mat4_translation((vec3_t){(float)hl_hit.x,(float)hl_hit.y,(float)hl_hit.z});
-            renderer_uniform_mat4(renderer_uniform_location(outline_program,"model"), hl_model.m);
-            renderer_uniform_mat4(renderer_uniform_location(outline_program,"view"),  view.m);
-            renderer_uniform_mat4(renderer_uniform_location(outline_program,"projection"), projection.m);
-            renderer_uniform_vec3(renderer_uniform_location(outline_program,"uColor"), 0.6f,0.6f,0.6f);
-            renderer_depth_mask(false);
-            renderer_polygon_offset(-1.0f,-1.0f);
-            renderer_enable(R_CAP_POLYGON_OFFSET_LINE);
-            renderer_line_width(3.0f);
-            renderer_bind_vao(outline_vao);
-            renderer_draw_arrays(R_PRIM_LINES, 0, 24);
-            renderer_bind_vao(R_INVALID_HANDLE);
-            renderer_line_width(1.0f);
-            renderer_disable(R_CAP_POLYGON_OFFSET_LINE);
-            renderer_depth_mask(true);
-        }
+        /* Populate per-frame fields in the draw context */
+        s_draw.view      = view;
+        s_draw.projection = projection;
+        s_draw.cam_pos   = cam_pos;
+        s_draw.win_width  = (float)win_width;
+        s_draw.win_height = (float)win_height;
+        s_draw.hl_found  = hl_hit.hit;
+        s_draw.hl_hit    = hl_hit;
+        s_draw.fps       = fps;
+        s_draw.ms_update = ms_update;
+        s_draw.ms_draw   = ms_draw;
+        s_draw.ms_swap   = ms_swap;
 
-        /* ── Skybox ──────────────────────────────────────────────────────── */
-        renderer_depth_mask(false);
-        renderer_depth_func(R_FUNC_LEQUAL);
-        renderer_disable(R_CAP_CULL_FACE);
-        renderer_use_program(skybox_program);
-        mat4_t inv_proj     = mat4_inverse(projection);
-        mat4_t view_rot     = view; view_rot.m[12]=view_rot.m[13]=view_rot.m[14]=0;
-        mat4_t inv_view_rot = mat4_transpose(view_rot);
-        renderer_uniform_mat4(renderer_uniform_location(skybox_program,"inv_projection"),    inv_proj.m);
-        renderer_uniform_mat4(renderer_uniform_location(skybox_program,"inv_view_rotation"), inv_view_rot.m);
-        renderer_bind_vao(skybox_vao);
-        renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 3);
-        renderer_bind_vao(R_INVALID_HANDLE);
-        renderer_enable(R_CAP_CULL_FACE);
-        renderer_depth_func(R_FUNC_LESS);
-        renderer_depth_mask(true);
+        if (last_time-last_save_flush>=5.0) { kv_world_flush_saves(world); last_save_flush=last_time; }
 
-        /* ── HUD ─────────────────────────────────────────────────────────── */
-        renderer_disable(R_CAP_DEPTH_TEST);
-        renderer_enable(R_CAP_BLEND);
-        renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
-        renderer_use_program(hud_program);
-        renderer_bind_vao(hud_vao);
-        renderer_uniform_vec3(renderer_uniform_location(hud_program,"uColor"), 0.7f,0.7f,0.7f);
-        renderer_uniform_float(renderer_uniform_location(hud_program,"uAlpha"), 1.0f);
-        renderer_draw_arrays(R_PRIM_TRIANGLES, 0, 12);
+        /* render_draw fires kyub_draw as the overlay callback */
+        { double t0=kln_timer_now(); render_draw(); ms_swap=(float)((kln_timer_now()-t0)*1000.0); }
 
-        inv_draw_hotbar(&inv_r, &player_inv, tex_array, hud_program,
-                        &gui, (float)win_width, (float)win_height);
-
-        /* ── Pause ───────────────────────────────────────────────────────── */
-        if (paused) {
-            renderer_use_program(hud_program);
-            renderer_uniform_vec3(renderer_uniform_location(hud_program,"uColor"),0.0f,0.0f,0.0f);
-            renderer_uniform_float(renderer_uniform_location(hud_program,"uAlpha"),0.30f);
-            renderer_bind_vao(overlay_vao);
-            renderer_draw_arrays(R_PRIM_TRIANGLES,0,3);
-            renderer_bind_vao(R_INVALID_HANDLE);
-
-#define BTN_W 240.0f
-#define BTN_H 48.0f
-#define BTN_GAP 14.0f
-            float cx2=(float)win_width*0.5f, cy2=(float)win_height*0.5f;
-            float bx=cx2-BTN_W*0.5f;
-
-            if (pause_screen==PAUSE_MAIN) {
-                float total_h=3.0f*BTN_H+2.0f*BTN_GAP, by=cy2-total_h*0.5f;
-                float title_scale=4.0f, tw=hud_text_width("PAUSED",title_scale), th=7.0f*title_scale;
-                hud_text(&gui,cx2-tw*0.5f,by-th-18.0f,"PAUSED",title_scale,0.95f,0.95f,0.95f);
-                if (hud_button(&gui,bx,by,BTN_W,BTN_H,"resume")) { paused=false; pause_screen=PAUSE_MAIN; window_set_cursor_mode(win,CURSOR_DISABLED); }
-                by+=BTN_H+BTN_GAP;
-                if (hud_button(&gui,bx,by,BTN_W,BTN_H,"options")) pause_screen=PAUSE_OPTIONS;
-                by+=BTN_H+BTN_GAP;
-                if (hud_button(&gui,bx,by,BTN_W,BTN_H,"quit game")) running=false;
-            } else {
-                float title_scale=4.0f, tw=hud_text_width("OPTIONS",title_scale), th=7.0f*title_scale;
-                float panel_w=280.0f, panel_x=cx2-panel_w*0.5f, panel_y=cy2-130.0f;
-                hud_text(&gui,cx2-tw*0.5f,panel_y-th-12.0f,"OPTIONS",title_scale,0.95f,0.95f,0.95f);
-                ui_input_t ui_in={.mouse_x=game_input.mouse_x,.mouse_y=game_input.mouse_y,.mouse_down=game_input.mouse_left,.pointer_valid=true};
-                ui_begin(&debug_ui,&ui_in,(float)win_width,(float)win_height,&game_draw);
-                ui_panel_begin(&debug_ui,panel_x,panel_y,panel_w);
-                ui_slider_int(&debug_ui,"render dist",&render_distance,1,16);
-                ui_slider_float(&debug_ui,"sensitivity",&camera.sensitivity,0.0005f,0.005f);
-                ui_slider_float(&debug_ui,"FOV",&fov_degrees,30.0f,110.0f);
-                ui_panel_end(&debug_ui);
-                ui_end(&debug_ui);
-                float back_w=140.0f;
-                if (hud_button(&gui,cx2-back_w*0.5f,panel_y+200.0f,back_w,BTN_H,"back"))
-                    pause_screen=PAUSE_MAIN;
-            }
-#undef BTN_W
-#undef BTN_H
-#undef BTN_GAP
-            renderer_use_program(R_INVALID_HANDLE);
-        }
-
-        /* ── Inventory screen ────────────────────────────────────────────── */
-        if (inv_open) {
-            int hsl = inv_hovered_slot((float)game_input.mouse_x, (float)game_input.mouse_y,
-                                       (float)win_width, (float)win_height);
-            inv_draw_screen(&inv_r, &player_inv, tex_array, hud_program,
-                            &gui, (float)win_width, (float)win_height, hsl);
-        }
-
-        /* ── Debug (F3) ──────────────────────────────────────────────────── */
-        if (show_debug && !paused) {
-            renderer_disable(R_CAP_DEPTH_TEST);
-            renderer_enable(R_CAP_BLEND);
-            renderer_blend_func(R_BLEND_SRC_ALPHA, R_BLEND_ONE_MINUS_SRC_ALPHA);
-            renderer_use_program(hud_program);
-            ui_input_t ui_in={.mouse_x=game_input.mouse_x,.mouse_y=game_input.mouse_y,.mouse_down=game_input.mouse_left,.pointer_valid=paused};
-            ui_begin(&debug_ui,&ui_in,(float)win_width,(float)win_height,&game_draw);
-            ui_panel_begin(&debug_ui,10.0f,10.0f,240.0f);
-            ui_text(&debug_ui,"%.0f fps",(double)fps);
-            ui_text(&debug_ui,"pos  %.1f %.1f %.1f",(double)cam_pos.x,(double)cam_pos.y,(double)cam_pos.z);
-            ui_separator(&debug_ui);
-            ui_text(&debug_ui,"update %.2f ms",(double)ms_update);
-            ui_text(&debug_ui,"draw   %.2f ms",(double)ms_draw);
-            ui_text(&debug_ui,"swap   %.2f ms",(double)ms_swap);
-            ui_separator(&debug_ui);
-            ui_slider_int(&debug_ui,"render dist",&render_distance,1,16);
-            ui_panel_end(&debug_ui);
-            ui_end(&debug_ui);
-            renderer_enable(R_CAP_DEPTH_TEST);
-        }
-
-        if (now-last_save_flush>=5.0) { kv_world_flush_saves(world); last_save_flush=now; }
-
-        renderer_enable(R_CAP_DEPTH_TEST);
-        { double t0=kln_timer_now(); renderer_swap(); ms_swap=(float)((kln_timer_now()-t0)*1000.0); }
         game_input_end_frame(&game_input);
     }
 
     kv_world_flush_saves(world);
     kv_world_destroy(world);
 
+    renderer_set_overlay_fn(NULL, NULL);
     renderer_destroy_program(skybox_program);
     renderer_destroy_program(outline_program);
     renderer_destroy_program(hud_program);
@@ -530,6 +627,7 @@ int main(void) {
     hud_shutdown(&gui);
     world_destroy(g_ecs);
     renderer_shutdown();
+    render_shutdown();
 
 #ifdef ENABLE_LOGGER
     log_shutdown();
