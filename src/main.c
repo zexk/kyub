@@ -171,7 +171,9 @@ int main(void) {
     const ui_draw_t game_draw = hud_draw(&gui);
 
     /* ── World ───────────────────────────────────────────────────────────── */
-    kv_world_t *world = kv_world_create(6, 2, kyub_terrain_gen, NULL, "saves/default");
+    int render_distance      = 6;
+    int prev_render_distance = 6;
+    kv_world_t *world = kv_world_create(render_distance, 2, kyub_terrain_gen, NULL, "saves/default");
 
     fps_camera_t camera;
     fps_camera_init(&camera);
@@ -204,7 +206,6 @@ int main(void) {
         LOG_INFO(LOG_CAT_PLATFORM,"Spawn at y=%.2f (ground at y=%d)", (double)spawn.y, ground_y);
     }
 
-    int         render_distance = 6;
     float       fov_degrees = FOV_DEFAULT;
     PauseScreen pause_screen = PAUSE_MAIN;
     bool        inv_open = false;
@@ -362,6 +363,13 @@ int main(void) {
         renderer_enable(R_CAP_CULL_FACE);
         renderer_disable(R_CAP_BLEND);
         renderer_clear(0.1f,0.1f,0.12f,1.0f);
+
+        if (render_distance != prev_render_distance) {
+            kv_world_flush_saves(world);
+            kv_world_destroy(world);
+            world = kv_world_create(render_distance, 2, kyub_terrain_gen, NULL, "saves/default");
+            prev_render_distance = render_distance;
+        }
 
         { double t0=kln_timer_now(); kv_world_update(world, cam_pos); ms_update=(float)((kln_timer_now()-t0)*1000.0); }
 
